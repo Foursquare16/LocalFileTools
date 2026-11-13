@@ -4,3 +4,6 @@ __pycache__/
 backend/.venv/
 frontend/node_modules/
 frontend/dist/
+compose.override.yaml
+state-backup.sqlite
+env-backup
