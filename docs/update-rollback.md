@@ -107,3 +107,7 @@ that still has containers on it. Recreating the cloudflared container briefly in
 
 Everything above except `git push` and the Navidrome command was run on a test clone: tagging, checking out an
 older tag and rebuilding (the old frontend was served), then returning to `master` and rebuilding.
+
+The published image was checked on a real server: tag `v1.0.0` was built by GitHub, pulled without a login, and run
+from another Compose project's file with the existing volumes. Editing this repository's `compose.yaml` to use the
+image was not run.
