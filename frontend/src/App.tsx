@@ -1,5 +1,7 @@
-import { FormEvent, useEffect, useState } from "react";
+import { DragEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { api, formatSize, HttpError, Job, uploadJob } from "./api";
+
+const SOURCE_URL = "https://github.com/Foursquare16/LocalFileTools";
 
 export default function App() {
   const [authed, setAuthed] = useState<boolean | null>(null);
@@ -10,12 +12,27 @@ export default function App() {
       .catch(() => setAuthed(false));
   }, []);
 
+  async function logout() {
+    await api("/logout", { method: "POST" }).catch(() => {});
+    setAuthed(false);
+  }
+
   if (authed === null) return null;
   return (
-    <main>
-      <h1>LocalFileTools</h1>
-      {authed ? <EchoScreen onLoggedOut={() => setAuthed(false)} /> : <Login onLoggedIn={() => setAuthed(true)} />}
-    </main>
+    <>
+      <header>
+        <h1>LocalFileTools</h1>
+        {authed && (
+          <button className="link" onClick={logout}>
+            Log out
+          </button>
+        )}
+      </header>
+      <main>{authed ? <Tools onLoggedOut={() => setAuthed(false)} /> : <Login onLoggedIn={() => setAuthed(true)} />}</main>
+      <footer>
+        Free software (AGPL-3.0): <a href={SOURCE_URL}>source code</a>
+      </footer>
+    </>
   );
 }
 
@@ -65,25 +82,115 @@ function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
   );
 }
 
+type ToolName = "image" | "images_to_pdf";
+
+const TOOLS: { name: ToolName; title: string; text: string }[] = [
+  { name: "image", title: "Image tool", text: "Convert between JPEG, PNG and WebP, resize, and compress to a quality or a target size." },
+  { name: "images_to_pdf", title: "Images → PDF", text: "Put several images into one PDF, in the order and orientation you choose." },
+];
+
+function Tools({ onLoggedOut }: { onLoggedOut: () => void }) {
+  const [tool, setTool] = useState<ToolName | null>(null);
+  if (tool) return <ToolScreen key={tool} tool={tool} onBack={() => setTool(null)} onLoggedOut={onLoggedOut} />;
+  return (
+    <div className="cards">
+      {TOOLS.map((t) => (
+        <button key={t.name} className="card tool" onClick={() => setTool(t.name)}>
+          <strong>{t.title}</strong>
+          <span>{t.text}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// shortcut: mirrors the server defaults (LFT_MAX_FILES, LFT_MAX_UPLOAD_MB); the server still enforces its own values.
+const MAX_FILES = 30;
+const MAX_BYTES = 50 * 1024 * 1024 - 64 * 1024; // leaves room for the multipart overhead in the request body
+const ACCEPT = "image/jpeg,image/png,image/webp,image/heic,image/heif,image/avif,.heic,.heif,.avif";
 const DONE = ["completed", "failed", "cancelled"];
 
-// Stage 1 only: proves upload → queue → worker → download with the no-op echo tool.
-function EchoScreen({ onLoggedOut }: { onLoggedOut: () => void }) {
-  const [files, setFiles] = useState<File[]>([]);
+type Item = { id: number; file: File; url: string; rotation: number };
+let nextId = 0;
+
+function ToolScreen({ tool, onBack, onLoggedOut }: { tool: ToolName; onBack: () => void; onLoggedOut: () => void }) {
+  const title = TOOLS.find((t) => t.name === tool)!.title;
+  const [items, setItems] = useState<Item[]>([]);
+  const [format, setFormat] = useState("jpeg");
+  const [maxWidth, setMaxWidth] = useState("");
+  const [maxHeight, setMaxHeight] = useState("");
+  const [mode, setMode] = useState<"quality" | "target">("quality");
+  const [quality, setQuality] = useState(85);
+  const [targetKb, setTargetKb] = useState("500");
+  const [page, setPage] = useState("a4");
+  const [margin, setMargin] = useState("10");
   const [progress, setProgress] = useState<number | null>(null);
   const [job, setJob] = useState<Job | null>(null);
   const [error, setError] = useState("");
+
+  // Revoke thumbnail URLs when the screen goes away.
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  useEffect(() => () => itemsRef.current.forEach((i) => URL.revokeObjectURL(i.url)), []);
 
   function fail(err: unknown) {
     if (err instanceof HttpError && err.status === 401) onLoggedOut();
     else setError((err as Error).message);
   }
 
-  async function start() {
+  function add(files: FileList | null) {
     setError("");
+    const added = [...(files ?? [])].map((file) => ({ id: nextId++, file, url: URL.createObjectURL(file), rotation: 0 }));
+    setItems((old) => [...old, ...added]);
+  }
+
+  function remove(id: number) {
+    setItems((old) => {
+      old.filter((i) => i.id === id).forEach((i) => URL.revokeObjectURL(i.url));
+      return old.filter((i) => i.id !== id);
+    });
+  }
+
+  function move(index: number, by: number) {
+    setItems((old) => {
+      const next = [...old];
+      [next[index], next[index + by]] = [next[index + by], next[index]];
+      return next;
+    });
+  }
+
+  function rotate(id: number) {
+    setItems((old) => old.map((i) => (i.id === id ? { ...i, rotation: (i.rotation + 90) % 360 } : i)));
+  }
+
+  function clear() {
+    items.forEach((i) => URL.revokeObjectURL(i.url));
+    setItems([]);
+  }
+
+  function options() {
+    if (tool === "images_to_pdf") return { page, margin_mm: Number(margin), rotations: items.map((i) => i.rotation) };
+    const opts: Record<string, unknown> = { format };
+    if (maxWidth) opts.max_width = Number(maxWidth);
+    if (maxHeight) opts.max_height = Number(maxHeight);
+    if (format !== "png") {
+      if (mode === "target") opts.target_kb = Number(targetKb);
+      else opts.quality = quality;
+    }
+    return opts;
+  }
+
+  async function start(e: FormEvent) {
+    e.preventDefault();
+    setError("");
+    // Checked here too: a server rejection mid-upload can reach the browser through Cloudflare as a bare network error.
+    const total = items.reduce((sum, i) => sum + i.file.size, 0);
+    if (!items.length) return setError("Add at least one image.");
+    if (items.length > MAX_FILES) return setError(`Too many files: at most ${MAX_FILES} per job.`);
+    if (total > MAX_BYTES) return setError(`Too large: ${formatSize(total)} selected, at most 50 MB per job.`);
     setProgress(0);
     try {
-      const id = await uploadJob("echo", {}, files, setProgress);
+      const id = await uploadJob(tool, options(), items.map((i) => i.file), setProgress);
       setJob(await api<Job>(`/jobs/${id}`));
     } catch (err) {
       fail(err);
@@ -100,62 +207,233 @@ function EchoScreen({ onLoggedOut }: { onLoggedOut: () => void }) {
     return () => clearInterval(timer);
   }, [jobId, finished]);
 
-  async function remove() {
+  /** Cancel or delete the job on the server, then go back to editing (keeping the files unless `fresh`). */
+  async function discard(fresh: boolean) {
     try {
       await api(`/jobs/${jobId}`, { method: "DELETE" });
-      setJob(null);
-      setFiles([]);
     } catch (err) {
-      fail(err);
+      if (!(err instanceof HttpError && err.status === 404)) return fail(err);
     }
+    setJob(null);
+    if (fresh) clear();
   }
 
-  async function logout() {
-    await api("/logout", { method: "POST" }).catch(() => {});
-    onLoggedOut();
+  if (job) return <JobView title={title} job={job} onDiscard={discard} />;
+
+  const pdf = tool === "images_to_pdf";
+  const uploading = progress !== null;
+  return (
+    <form className="card" onSubmit={start}>
+      <div className="row">
+        <h2>{title}</h2>
+        <button type="button" className="link" onClick={onBack}>
+          ← All tools
+        </button>
+      </div>
+      <Dropzone onFiles={add} />
+      {items.length > 0 && (
+        <ul className="files">
+          {items.map((item, n) => (
+            <li key={item.id}>
+              <img src={item.url} alt="" style={{ transform: `rotate(${item.rotation}deg)` }} onError={(e) => (e.currentTarget.style.visibility = "hidden")} />
+              <span className="name">
+                {pdf && `${n + 1}. `}
+                {item.file.name}
+                <small>{formatSize(item.file.size)}</small>
+              </span>
+              <span className="actions">
+                {pdf && (
+                  <>
+                    <button type="button" disabled={n === 0} onClick={() => move(n, -1)} aria-label={`Move ${item.file.name} up`}>
+                      ↑
+                    </button>
+                    <button type="button" disabled={n === items.length - 1} onClick={() => move(n, 1)} aria-label={`Move ${item.file.name} down`}>
+                      ↓
+                    </button>
+                    <button type="button" onClick={() => rotate(item.id)} aria-label={`Rotate ${item.file.name} clockwise (now ${item.rotation}°)`}>
+                      ↻
+                    </button>
+                  </>
+                )}
+                <button type="button" onClick={() => remove(item.id)} aria-label={`Remove ${item.file.name}`}>
+                  ✕
+                </button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <fieldset disabled={uploading}>
+        <legend>Settings</legend>
+        {pdf ? (
+          <>
+            <label>
+              Page size
+              <select value={page} onChange={(e) => setPage(e.target.value)}>
+                <option value="a4">A4 (turned to fit each image)</option>
+                <option value="image">Same as the image</option>
+              </select>
+            </label>
+            <label>
+              Margin (mm)
+              <input type="number" min={0} max={50} step={1} value={margin} onChange={(e) => setMargin(e.target.value)} required />
+            </label>
+          </>
+        ) : (
+          <>
+            <label>
+              Output format
+              <select value={format} onChange={(e) => setFormat(e.target.value)}>
+                <option value="jpeg">JPEG</option>
+                <option value="png">PNG</option>
+                <option value="webp">WebP</option>
+              </select>
+            </label>
+            <div className="row">
+              <label>
+                Max width (px)
+                <input type="number" min={1} max={20000} value={maxWidth} onChange={(e) => setMaxWidth(e.target.value)} placeholder="Keep" />
+              </label>
+              <label>
+                Max height (px)
+                <input type="number" min={1} max={20000} value={maxHeight} onChange={(e) => setMaxHeight(e.target.value)} placeholder="Keep" />
+              </label>
+            </div>
+            <p className="hint">Resizing keeps proportions and only ever makes images smaller.</p>
+            {format === "png" ? (
+              <p className="hint">Quality and target size work for JPEG and WebP only: PNG has no quality setting.</p>
+            ) : (
+              <>
+                <div className="radios" role="radiogroup" aria-label="Compression">
+                  <label className="inline">
+                    <input type="radio" checked={mode === "quality"} onChange={() => setMode("quality")} /> Quality
+                  </label>
+                  <label className="inline">
+                    <input type="radio" checked={mode === "target"} onChange={() => setMode("target")} /> Target size
+                  </label>
+                </div>
+                {mode === "quality" ? (
+                  <label>
+                    Quality: {quality}
+                    <input type="range" min={1} max={100} value={quality} onChange={(e) => setQuality(Number(e.target.value))} />
+                  </label>
+                ) : (
+                  <label>
+                    Target size per image (KB)
+                    <input type="number" min={1} max={1000000} value={targetKb} onChange={(e) => setTargetKb(e.target.value)} required />
+                    <span className="hint">Best effort (JPEG and WebP only): if it can't be reached, you get the smallest result.</span>
+                  </label>
+                )}
+              </>
+            )}
+          </>
+        )}
+      </fieldset>
+      {error && <p className="error" role="alert">{error}</p>}
+      {uploading ? (
+        <progress value={progress} max={1} aria-label="Upload progress" />
+      ) : (
+        <button disabled={!items.length}>{pdf ? "Make PDF" : "Convert"}</button>
+      )}
+    </form>
+  );
+}
+
+function Dropzone({ onFiles }: { onFiles: (files: FileList | null) => void }) {
+  const [over, setOver] = useState(false);
+  function drop(e: DragEvent) {
+    e.preventDefault();
+    setOver(false);
+    onFiles(e.dataTransfer.files);
   }
+  return (
+    <label
+      className={over ? "dropzone over" : "dropzone"}
+      onDragOver={(e) => {
+        e.preventDefault();
+        setOver(true);
+      }}
+      onDragLeave={() => setOver(false)}
+      onDrop={drop}
+    >
+      <input
+        type="file"
+        multiple
+        accept={ACCEPT}
+        onChange={(e) => {
+          onFiles(e.target.files);
+          e.target.value = ""; // lets the same file be picked again
+        }}
+      />
+      <span>Drop images here or <u>choose files</u></span>
+      <small>JPEG, PNG, WebP, HEIC or AVIF · up to {MAX_FILES} files, 50 MB in total</small>
+    </label>
+  );
+}
+
+function JobView({ title, job, onDiscard }: { title: string; job: Job; onDiscard: (fresh: boolean) => void }) {
+  const before = job.inputs.reduce((sum, f) => sum + f.size, 0);
+  const after = job.outputs.reduce((sum, f) => sum + f.size, 0);
+  const paired = job.outputs.length === job.inputs.length;
+  const base = `/api/jobs/${job.id}`;
 
   return (
-    <section className="card">
-      <h2>Echo test</h2>
-      {!job && (
+    <section className="card" aria-live="polite">
+      <h2>{title}</h2>
+      {!DONE.includes(job.status) && (
         <>
-          <input type="file" multiple onChange={(e) => setFiles([...(e.target.files ?? [])])} />
-          {progress === null ? (
-            <button disabled={!files.length} onClick={start}>
-              Upload
-            </button>
-          ) : (
-            <progress value={progress} max={1} aria-label="Upload progress" />
-          )}
+          <p>{job.status === "queued" ? "Waiting in the queue…" : job.stage ?? "Processing…"}</p>
+          <progress aria-label="Processing" />
+          <button onClick={() => onDiscard(false)}>Cancel</button>
         </>
       )}
-      {job && (
+      {job.status === "completed" && (
         <>
-          <p>
-            Status: <strong>{job.status}</strong>
-            {job.stage && ` — ${job.stage}`}
+          <p className="summary">
+            {formatSize(before)} → <strong>{formatSize(after)}</strong> <Saved before={before} after={after} />
           </p>
-          {job.message && <p>{job.message}</p>}
-          {job.status === "completed" && (
-            <ul>
-              {job.outputs.map((f, n) => (
-                <li key={n}>
-                  <a href={`/api/jobs/${job.id}/files/${n}`} download>
-                    {f.name}
-                  </a>{" "}
-                  ({formatSize(f.size)})
-                </li>
-              ))}
-            </ul>
-          )}
-          <button onClick={remove}>{finished ? "Delete" : "Cancel"}</button>
+          {job.message && <p className="hint">{job.message}</p>}
+          <ul className="files">
+            {job.outputs.map((f, n) => (
+              <li key={n}>
+                <span className="name">
+                  {f.name}
+                  <small>
+                    {paired ? `${formatSize(job.inputs[n].size)} → ` : ""}
+                    {formatSize(f.size)} {paired && <Saved before={job.inputs[n].size} after={f.size} />}
+                  </small>
+                </span>
+                <a className="button" href={`${base}/files/${n}`} download aria-label={`Download ${f.name}`}>
+                  Download
+                </a>
+              </li>
+            ))}
+          </ul>
+          <div className="row">
+            {job.outputs.length > 1 && (
+              <a className="button" href={`${base}/zip`} download>
+                Download all (ZIP)
+              </a>
+            )}
+            <button onClick={() => onDiscard(true)}>Delete files and start over</button>
+          </div>
+          <p className="hint">Files are deleted from the server automatically within an hour.</p>
         </>
       )}
-      {error && <p className="error" role="alert">{error}</p>}
-      <button className="link" onClick={logout}>
-        Log out
-      </button>
+      {(job.status === "failed" || job.status === "cancelled") && (
+        <>
+          <p className="error" role="alert">
+            {job.status === "cancelled" ? "Cancelled." : job.message ?? "Processing failed."}
+          </p>
+          <button onClick={() => onDiscard(false)}>Back</button>
+        </>
+      )}
     </section>
   );
+}
+
+function Saved({ before, after }: { before: number; after: number }) {
+  if (!before) return null;
+  const pct = Math.round((1 - after / before) * 100);
+  return <span className={pct >= 0 ? "saved" : "grew"}>{pct >= 0 ? `${pct}% saved` : `${-pct}% larger`}</span>;
 }
