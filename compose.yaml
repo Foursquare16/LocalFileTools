@@ -1,0 +1,38 @@
+# web + worker: same image, different command (plan §6).
+x-hardening: &hardening
+  build: .
+  image: localfiletools:latest
+  env_file: .env
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  init: true  # reaps killed job children
+  tmpfs: ["/tmp:size=64m"]
+  restart: unless-stopped
+
+services:
+  web:
+    <<: *hardening
+    command: ["uvicorn", "app.api:app", "--host", "0.0.0.0", "--port", "8080"]
+    ports: ["127.0.0.1:8080:8080"]  # cloudflared on the host is the only client
+    volumes:
+      - state:/data/state
+      - jobs:/data/jobs
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/session')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  worker:
+    <<: *hardening
+    command: ["python", "-m", "app.worker"]
+    network_mode: none
+    volumes:
+      - jobs:/data/jobs  # never the state volume: no password hashes or sessions here
+    mem_limit: 2g
+    cpus: 2
+
+volumes:
+  state:
+  jobs:
