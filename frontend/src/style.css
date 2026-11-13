@@ -46,6 +46,11 @@ footer {
   opacity: 0.8;
 }
 
+footer a {
+  display: inline-block;
+  padding: 0.75rem 0; /* taller tap target */
+}
+
 .card {
   display: flex;
   flex-direction: column;
@@ -85,6 +90,14 @@ label {
 label.inline {
   flex-direction: row;
   align-items: center;
+  gap: 0.5rem;
+  min-height: 2.75rem; /* the whole label is the tap target for its radio */
+}
+
+input[type="radio"] {
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0;
 }
 
 .row > label:not(.inline) {
@@ -100,8 +113,18 @@ a.button {
   min-width: 0;
 }
 
+/* Touch targets of about 44 px. */
+input:not([type="radio"]),
+select,
+button,
 a.button {
-  display: inline-block;
+  min-height: 2.75rem;
+}
+
+a.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 1px solid var(--line);
   border-radius: 4px;
   color: inherit;
@@ -142,6 +165,7 @@ fieldset {
   position: absolute;
   width: 1px;
   height: 1px;
+  min-height: 0;
   opacity: 0;
 }
 
@@ -183,7 +207,7 @@ fieldset {
 }
 
 .files .actions button {
-  min-width: 2.5rem;
+  min-width: 2.75rem;
 }
 
 small,
@@ -201,12 +225,13 @@ small,
   margin: 0;
 }
 
+/* light-dark(): each colour keeps 4.5:1 contrast on both the light and the dark page background. */
 .saved {
-  color: #2a8f3a;
+  color: light-dark(#1e7a2e, #4cc764);
 }
 
 .grew {
-  color: #b86a00;
+  color: light-dark(#9a5800, #f0a030);
 }
 
 progress {
@@ -214,7 +239,7 @@ progress {
 }
 
 .error {
-  color: #d33;
+  color: light-dark(#c00, #ff6b6b);
 }
 
 button.link {
