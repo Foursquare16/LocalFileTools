@@ -88,7 +88,8 @@ Job states: `queued → processing → completed | failed | cancelled`. The brow
 ### Auth
 
 - One owner row, created with `python -m app.cli create-owner` via `docker compose run`. No signup, no email. Password reset = run the command again.
-- Argon2 hashes. 7-day server-side session; only the token hash is stored. Cookie `HttpOnly; Secure; SameSite=Strict`.
+- Argon2 hashes. 7-day server-side session; only the token hash is stored. Cookie `HttpOnly; Secure; SameSite=Strict`
+  (`Secure` is left off only for the opt-in plain-HTTP LAN address, `LFT_LAN_HOST`).
 - CSRF: `SameSite=Strict` + Origin check + a required custom header on mutating requests.
 - Login rate limit: 5 failures per IP → 15-minute lockout (in-memory). IP read from `CF-Connecting-IP`, trustworthy because only cloudflared can reach the port.
 

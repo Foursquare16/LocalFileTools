@@ -76,18 +76,22 @@ class Credentials(BaseModel):
     password: str
 
 
+def _cookie_flags(request: Request) -> dict:
+    # Browsers drop a Secure cookie over plain HTTP, so the opt-in LAN address gets one without it.
+    lan = bool(config.LAN_HOST) and request.headers.get("host") == config.LAN_HOST
+    return {"httponly": True, "secure": not lan, "samesite": "strict"}
+
+
 @public.post("/login", status_code=204)
 def login(body: Credentials, request: Request, response: Response):
     token = auth.login(auth.client_ip(request), body.username, body.password)
-    response.set_cookie(
-        auth.COOKIE, token, max_age=config.SESSION_SECONDS, httponly=True, secure=True, samesite="strict"
-    )
+    response.set_cookie(auth.COOKIE, token, max_age=config.SESSION_SECONDS, **_cookie_flags(request))
 
 
 @public.post("/logout", status_code=204)
 def logout(request: Request, response: Response):
     auth.logout(request.cookies.get(auth.COOKIE))
-    response.delete_cookie(auth.COOKIE, httponly=True, secure=True, samesite="strict")
+    response.delete_cookie(auth.COOKIE, **_cookie_flags(request))
 
 
 @public.get("/session")

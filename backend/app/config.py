@@ -24,6 +24,9 @@ DISK_BUDGET_BYTES = _int("LFT_DISK_BUDGET_MB", 2048) * MB  # jobs volume
 RETENTION_SECONDS = _int("LFT_RETENTION_SECONDS", 3600)
 CLEANUP_INTERVAL_SECONDS = _int("LFT_CLEANUP_INTERVAL_SECONDS", 300)
 
+# Optional "host:port" for plain-HTTP access on the LAN: only requests to this exact Host get a non-Secure cookie.
+LAN_HOST = os.environ.get("LFT_LAN_HOST", "")
+
 SESSION_SECONDS = 7 * 24 * 3600
 LOGIN_MAX_FAILURES = 5
 LOGIN_LOCKOUT_SECONDS = 15 * 60

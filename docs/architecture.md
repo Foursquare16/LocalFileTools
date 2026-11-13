@@ -62,6 +62,7 @@ All responses carry a strict Content Security Policy (`default-src 'self'`, no f
 
 - One owner account, created or reset with `python -m app.cli create-owner`. No signup.
 - Sessions last 7 days and are stored server-side. The cookie is `HttpOnly; Secure; SameSite=Strict`.
+  `Secure` is left off only for requests whose `Host` equals `LFT_LAN_HOST`, when that is set.
 - Every request other than GET or HEAD must have an `Origin` whose host equals the `Host` header, and an `X-LFT: 1` header.
 - Five failed logins from one IP lock that IP out for 15 minutes. The IP is read from `CF-Connecting-IP`, which is
   only trustworthy because nothing but cloudflared can reach the web port. The counter is kept in memory and resets

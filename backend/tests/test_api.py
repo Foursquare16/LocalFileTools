@@ -4,9 +4,10 @@ import uuid
 import zipfile
 
 from conftest import PASSWORD, USERNAME, image_bytes, job_dirs, run_next_job, upload
+from fastapi.testclient import TestClient
 from PIL import Image
 
-from app import config, db
+from app import api, config, db
 
 
 def test_anonymous_gets_401(client):
@@ -32,6 +33,19 @@ def test_cookie_flags(client):
     with db.state() as c:  # only the hash is stored
         (stored,) = c.execute("SELECT token_hash FROM sessions").fetchone()
     assert stored != client.cookies["session"]
+
+
+def test_lan_host_gets_a_cookie_that_works_over_plain_http(client, monkeypatch):
+    monkeypatch.setattr(config, "LAN_HOST", "192.168.0.102:8080")
+    lan = "http://192.168.0.102:8080"
+    plain = TestClient(api.app, base_url=lan, headers={"Origin": lan, "X-LFT": "1"})
+    r = plain.post("/api/login", json={"username": USERNAME, "password": PASSWORD})
+    cookie = r.headers["set-cookie"].lower()
+    assert "secure" not in cookie and "httponly" in cookie and "samesite=strict" in cookie
+    assert plain.get("/api/session").json() == {"authenticated": True}
+    # Any other host, the tunnel's included, still gets the Secure cookie.
+    r = client.post("/api/login", json={"username": USERNAME, "password": PASSWORD})
+    assert "secure" in r.headers["set-cookie"].lower()
 
 
 def test_expired_session_is_rejected(logged_in):

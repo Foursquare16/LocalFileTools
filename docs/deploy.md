@@ -47,6 +47,7 @@ It should print `{"authenticated":false}`.
 
 Find out how cloudflared runs on the server. If `systemctl status cloudflared` shows a running service, use case A.
 If it is a container (`docker ps --format '{{.Names}} {{.Image}}' | grep cloudflared` lists it), use case B.
+Case C works with either and also opens the app to your LAN.
 
 ### Case A: cloudflared as a host service
 
@@ -127,6 +128,40 @@ In this case any container on that network (Navidrome included) can reach web di
 `CF-Connecting-IP` header, which the login rate limit trusts. The worker is not affected; it has no network at all.
 
 The network must exist before LocalFileTools starts, so start Navidrome's project first after changes to it.
+
+### Case C: published on the LAN, with or without a tunnel
+
+Use this to open the app directly from other devices on your network, for example when the tunnel or your internet
+connection is down. A cloudflared container can use the same address, so no shared Docker network is needed.
+
+Publish web on the server's LAN address (here `192.168.1.10`) with a `compose.override.yaml` next to `compose.yaml`:
+
+```yaml
+services:
+  web:
+    ports: !override ["192.168.1.10:8080:8080"]
+```
+
+Set the same address and port in `.env`, then apply both:
+
+```
+LFT_LAN_HOST=192.168.1.10:8080
+```
+
+```bash
+docker compose up -d
+```
+
+In the tunnel, route `files.example.com` to `http://192.168.1.10:8080`. On the LAN, open `http://192.168.1.10:8080`.
+
+What you accept with this case:
+
+- On the LAN the connection is plain HTTP: the password, the session cookie and your files are not encrypted there.
+  Without `LFT_LAN_HOST` the page loads but login does not work, because browsers drop a `Secure` cookie over HTTP.
+- Every device on the LAN can reach the login page and can set its own `CF-Connecting-IP` header, which the login
+  rate limit trusts. Use a strong password.
+- The address must match what the browser sends as `Host`, port included. If the server's LAN address changes,
+  update both files.
 
 ## 3. Check the Host header
 

@@ -79,7 +79,7 @@ docker compose exec web python -m app.cli create-owner
 
 The app now listens on `http://127.0.0.1:8080`, on the server only. Open it in a browser on the server itself,
 or publish it with a Cloudflare Tunnel as described in [docs/deploy.md](docs/deploy.md). The login cookie is marked
-`Secure`, so from other machines it only works over HTTPS.
+`Secure`, so from other machines it only works over HTTPS, unless you set `LFT_LAN_HOST` (deploy guide, case C).
 
 Running `create-owner` again resets the password and signs out every session.
 
