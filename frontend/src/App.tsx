@@ -235,7 +235,7 @@ function ToolScreen({ tool, onBack, onLoggedOut }: { tool: ToolName; onBack: () 
         <ul className="files">
           {items.map((item, n) => (
             <li key={item.id}>
-              <img src={item.url} alt="" style={{ transform: `rotate(${item.rotation}deg)` }} onError={(e) => (e.currentTarget.style.visibility = "hidden")} />
+              <img src={item.url} alt="" loading="lazy" decoding="async" style={{ transform: `rotate(${item.rotation}deg)` }} onError={(e) => (e.currentTarget.style.visibility = "hidden")} />
               <span className="name">
                 {pdf && `${n + 1}. `}
                 {item.file.name}
@@ -306,10 +306,10 @@ function ToolScreen({ tool, onBack, onLoggedOut }: { tool: ToolName; onBack: () 
               <>
                 <div className="radios" role="radiogroup" aria-label="Compression">
                   <label className="inline">
-                    <input type="radio" checked={mode === "quality"} onChange={() => setMode("quality")} /> Quality
+                    <input type="radio" name="mode" checked={mode === "quality"} onChange={() => setMode("quality")} /> Quality
                   </label>
                   <label className="inline">
-                    <input type="radio" checked={mode === "target"} onChange={() => setMode("target")} /> Target size
+                    <input type="radio" name="mode" checked={mode === "target"} onChange={() => setMode("target")} /> Target size
                   </label>
                 </div>
                 {mode === "quality" ? (

@@ -4,6 +4,7 @@ Options: {"page": "a4"|"image", "margin_mm"?: 0-50, "rotations"?: [0|90|180|270 
 """
 
 import os
+import shutil
 
 import img2pdf
 
@@ -53,5 +54,6 @@ def run(job_dir, inputs, options, report):
     with open(tmp, "wb") as f:
         img2pdf.convert(pages, layout_fun=layout, outputstream=f)
     os.replace(tmp, out_dir / "0")
+    shutil.rmtree(work, ignore_errors=True)  # intermediates would count against the disk budget for an hour
     report(outputs=[{"name": "images.pdf", "size": os.path.getsize(out_dir / "0"), "type": "application/pdf"}])
     return None

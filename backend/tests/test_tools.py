@@ -102,6 +102,13 @@ def test_png_renamed_jpg_handled_by_content(tmp_path):
     assert reported[0]["name"] == "shot.webp" and opened(out[0]).mode == "RGBA"  # read as PNG: alpha survived
 
 
+def test_disk_budget_exceeded_while_converting(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "DISK_BUDGET_BYTES", 10)
+    (config.JOBS_DIR / "big.bin").write_bytes(b"x" * 11)
+    with pytest.raises(ToolError, match="temporary storage is full"):
+        run_tool(image, tmp_path, [("a.png", image_bytes())], {"format": "png"})
+
+
 @pytest.mark.parametrize("size", [(1100, 1000), (3000, 1000)])  # over the limit, and over Pillow's 2× hard limit
 def test_oversized_pixel_count_rejected(tmp_path, monkeypatch, size):
     monkeypatch.setattr(config, "MAX_IMAGE_MP", 1)
