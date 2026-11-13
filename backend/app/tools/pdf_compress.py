@@ -46,7 +46,8 @@ def _structural(src, dst):
 
 def _ghostscript(src, dst, preset):
     # Only paths built from the job dir and fixed strings reach gs; no shell. Killed with the job's process group.
-    cmd = ["gs", "-dSAFER", "-dBATCH", "-dNOPAUSE", "-dQUIET", "-sDEVICE=pdfwrite",
+    # PDFSTOPONERROR: without it gs "repairs or ignores" damaged content and still exits 0, silently losing it.
+    cmd = ["gs", "-dSAFER", "-dBATCH", "-dNOPAUSE", "-dQUIET", "-dPDFSTOPONERROR", "-sDEVICE=pdfwrite",
            f"-dPDFSETTINGS={preset}", f"-sOutputFile={dst}", str(src)]
     return subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True).returncode == 0
 
@@ -69,7 +70,7 @@ def run(job_dir, inputs, options, report):
     target = target_kb * 1024 if target_kb else None
     attempts = [("Optimising structure", None)]
     attempts += [(f"Compressing ({s})", p) for s, p in LADDER.items() if target or s == strength]
-    stopped = None
+    stopped, gs_failed = None, False
     for stage, preset in attempts:
         if jobs.disk_usage() > config.DISK_BUDGET_BYTES:
             stopped = "The server's temporary storage is full, so compression stopped early."
@@ -79,6 +80,7 @@ def run(job_dir, inputs, options, report):
         try:
             if preset:
                 ok = _ghostscript(src, tmp, preset)
+                gs_failed = gs_failed or not ok
             else:
                 _structural(src, tmp)
                 ok = True
@@ -86,8 +88,8 @@ def run(job_dir, inputs, options, report):
                 best = os.path.getsize(tmp)
                 os.replace(tmp, out_dir / "0")
                 report(outputs=[{**output, "size": best}])
-        except pikepdf.PdfError:
-            pass  # pikepdf could not rewrite it; Ghostscript may still
+        except (pikepdf.PdfError, OSError):
+            pass  # this attempt produced nothing usable; the next one may still
         finally:
             tmp.unlink(missing_ok=True)
         if target and best <= target:
@@ -97,7 +99,12 @@ def run(job_dir, inputs, options, report):
         shutil.copyfile(src, out_dir / "0.tmp")
         os.replace(out_dir / "0.tmp", out_dir / "0")
         report(outputs=[{**output, "size": original}])
-        return " ".join(filter(None, [stopped, "No improvement: the PDF is already compact, so this is the original file."]))
+        why = (
+            "Not compressed: this PDF has errors, and repairing them could lose content, so this is the original file."
+            if gs_failed
+            else "No improvement: the PDF is already compact, so this is the original file."
+        )
+        return " ".join(filter(None, [stopped, why]))
     if target and best > target:
         return " ".join(filter(None, [stopped, f"Target not reached: this is the smallest result, {best / 1024:,.0f} KB."]))
     return stopped

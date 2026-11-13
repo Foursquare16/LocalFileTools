@@ -97,6 +97,18 @@ def test_already_small_pdf_reports_no_improvement_and_returns_original(tmp_path)
 
 
 @needs_gs
+def test_damaged_pdf_is_returned_untouched(tmp_path):
+    """Ghostscript would 'repair or ignore' the broken page and exit 0; the tool must not pass that off as a result."""
+    pdf = pikepdf.open(io.BytesIO(text_pdf(pages=3)))
+    pdf.pages[1].Contents = pdf.make_stream(b"BT /F1 24 Tf (Page 2) Tj ET q 1 0 0 1 (((( garbage \x00\xff Do Q BT")
+    pdf.save(tmp_path / "raw.pdf")
+    pdf_compress._structural(tmp_path / "raw.pdf", tmp_path / "src.pdf")  # already compact: only gs could shrink it
+    src = (tmp_path / "src.pdf").read_bytes()
+    out, _, message = compress(tmp_path, src, {"strength": "high"})
+    assert out == src and "this PDF has errors" in message
+
+
+@needs_gs
 def test_target_reached_stops_at_first_rung_that_fits(tmp_path, monkeypatch):
     calls = []
     real = pdf_compress._ghostscript
