@@ -227,10 +227,12 @@ small,
 
 /* light-dark(): each colour keeps 4.5:1 contrast on both the light and the dark page background. */
 .saved {
+  color: #2a8f3a; /* browsers without light-dark() */
   color: light-dark(#1e7a2e, #4cc764);
 }
 
 .grew {
+  color: #b86a00; /* browsers without light-dark() */
   color: light-dark(#9a5800, #f0a030);
 }
 
@@ -239,6 +241,7 @@ progress {
 }
 
 .error {
+  color: #d33; /* browsers without light-dark() */
   color: light-dark(#c00, #ff6b6b);
 }
 

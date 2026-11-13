@@ -78,6 +78,8 @@ cloudflared tunnel route dns <tunnel-name> files.example.com
 sudo systemctl restart cloudflared
 ```
 
+The `!override` and `!reset` tags used below need Docker Compose 2.24 or newer (`docker compose version`).
+
 If port 8080 is already taken on the server, publish another port with a `compose.override.yaml` next to
 `compose.yaml` (Compose reads it automatically, and git ignores it), and use that port in the tunnel route:
 

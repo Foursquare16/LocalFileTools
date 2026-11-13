@@ -1,7 +1,8 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// Dev: the API runs on uvicorn at :8080. The Host header is kept, so the backend's Origin check passes.
+// Dev: the API runs on uvicorn at :8080. Logging in does not work through this proxy: it does not keep the
+// Host header the backend's Origin check compares against. See CONTRIBUTING.md for the setup that works.
 export default defineConfig({
   plugins: [react()],
   server: { proxy: { "/api": "http://127.0.0.1:8080" } },

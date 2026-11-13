@@ -462,7 +462,7 @@ function JobView({ title, job, onDiscard }: { title: string; job: Job; onDiscard
             )}
             <button onClick={() => onDiscard(true)}>Delete files and start over</button>
           </div>
-          <p className="hint">Files are deleted from the server automatically within an hour.</p>
+          <p className="hint">Files are deleted from the server automatically after about an hour.</p>
         </>
       )}
       {(job.status === "failed" || job.status === "cancelled") && (
@@ -480,5 +480,6 @@ function JobView({ title, job, onDiscard }: { title: string; job: Job; onDiscard
 function Saved({ before, after }: { before: number; after: number }) {
   if (!before) return null;
   const pct = Math.round((1 - after / before) * 100);
-  return <span className={pct >= 0 ? "saved" : "grew"}>{pct >= 0 ? `${pct}% saved` : `${-pct}% larger`}</span>;
+  if (pct === 0) return <span>about the same size</span>; // also catches -0: a hair larger is not "0% saved"
+  return <span className={pct > 0 ? "saved" : "grew"}>{pct > 0 ? `${pct}% saved` : `${-pct}% larger`}</span>;
 }
