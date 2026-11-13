@@ -82,11 +82,12 @@ function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
   );
 }
 
-type ToolName = "image" | "images_to_pdf";
+type ToolName = "image" | "images_to_pdf" | "pdf_compress";
 
 const TOOLS: { name: ToolName; title: string; text: string }[] = [
   { name: "image", title: "Image tool", text: "Convert between JPEG, PNG and WebP, resize, and compress to a quality or a target size." },
   { name: "images_to_pdf", title: "Images → PDF", text: "Put several images into one PDF, in the order and orientation you choose." },
+  { name: "pdf_compress", title: "PDF compressor", text: "Make a PDF smaller with a compression strength or a target size." },
 ];
 
 function Tools({ onLoggedOut }: { onLoggedOut: () => void }) {
@@ -108,6 +109,7 @@ function Tools({ onLoggedOut }: { onLoggedOut: () => void }) {
 const MAX_FILES = 30;
 const MAX_BYTES = 50 * 1024 * 1024 - 64 * 1024; // leaves room for the multipart overhead in the request body
 const ACCEPT = "image/jpeg,image/png,image/webp,image/heic,image/heif,image/avif,.heic,.heif,.avif";
+const ACCEPT_PDF = "application/pdf,.pdf";
 const DONE = ["completed", "failed", "cancelled"];
 
 type Item = { id: number; file: File; url: string; rotation: number };
@@ -124,6 +126,7 @@ function ToolScreen({ tool, onBack, onLoggedOut }: { tool: ToolName; onBack: () 
   const [targetKb, setTargetKb] = useState("500");
   const [page, setPage] = useState("a4");
   const [margin, setMargin] = useState("10");
+  const [strength, setStrength] = useState("medium");
   const [progress, setProgress] = useState<number | null>(null);
   const [job, setJob] = useState<Job | null>(null);
   const [error, setError] = useState("");
@@ -141,7 +144,8 @@ function ToolScreen({ tool, onBack, onLoggedOut }: { tool: ToolName; onBack: () 
   function add(files: FileList | null) {
     setError("");
     const added = [...(files ?? [])].map((file) => ({ id: nextId++, file, url: URL.createObjectURL(file), rotation: 0 }));
-    setItems((old) => [...old, ...added]);
+    if (tool === "pdf_compress") clear(); // the compressor takes one PDF: a new pick replaces it
+    setItems((old) => [...old, ...added].slice(tool === "pdf_compress" ? -1 : 0));
   }
 
   function remove(id: number) {
@@ -169,6 +173,7 @@ function ToolScreen({ tool, onBack, onLoggedOut }: { tool: ToolName; onBack: () 
   }
 
   function options() {
+    if (tool === "pdf_compress") return mode === "target" ? { target_kb: Number(targetKb) } : { strength };
     if (tool === "images_to_pdf") return { page, margin_mm: Number(margin), rotations: items.map((i) => i.rotation) };
     const opts: Record<string, unknown> = { format };
     if (maxWidth) opts.max_width = Number(maxWidth);
@@ -185,7 +190,7 @@ function ToolScreen({ tool, onBack, onLoggedOut }: { tool: ToolName; onBack: () 
     setError("");
     // Checked here too: a server rejection mid-upload can reach the browser through Cloudflare as a bare network error.
     const total = items.reduce((sum, i) => sum + i.file.size, 0);
-    if (!items.length) return setError("Add at least one image.");
+    if (!items.length) return setError(compress ? "Add a PDF." : "Add at least one image.");
     if (items.length > MAX_FILES) return setError(`Too many files: at most ${MAX_FILES} per job.`);
     if (total > MAX_BYTES) return setError(`Too large: ${formatSize(total)} selected, at most 50 MB per job.`);
     setProgress(0);
@@ -221,6 +226,7 @@ function ToolScreen({ tool, onBack, onLoggedOut }: { tool: ToolName; onBack: () 
   if (job) return <JobView title={title} job={job} onDiscard={discard} />;
 
   const pdf = tool === "images_to_pdf";
+  const compress = tool === "pdf_compress";
   const uploading = progress !== null;
   return (
     <form className="card" onSubmit={start}>
@@ -230,12 +236,12 @@ function ToolScreen({ tool, onBack, onLoggedOut }: { tool: ToolName; onBack: () 
           ← All tools
         </button>
       </div>
-      <Dropzone onFiles={add} />
+      <Dropzone onFiles={add} pdf={compress} />
       {items.length > 0 && (
         <ul className="files">
           {items.map((item, n) => (
             <li key={item.id}>
-              <img src={item.url} alt="" loading="lazy" decoding="async" style={{ transform: `rotate(${item.rotation}deg)` }} onError={(e) => (e.currentTarget.style.visibility = "hidden")} />
+              {!compress && <img src={item.url} alt="" loading="lazy" decoding="async" style={{ transform: `rotate(${item.rotation}deg)` }} onError={(e) => (e.currentTarget.style.visibility = "hidden")} />}
               <span className="name">
                 {pdf && `${n + 1}. `}
                 {item.file.name}
@@ -265,7 +271,37 @@ function ToolScreen({ tool, onBack, onLoggedOut }: { tool: ToolName; onBack: () 
       )}
       <fieldset disabled={uploading}>
         <legend>Settings</legend>
-        {pdf ? (
+        {compress ? (
+          <>
+            <div className="radios" role="radiogroup" aria-label="Compression">
+              <label className="inline">
+                <input type="radio" name="mode" checked={mode === "quality"} onChange={() => setMode("quality")} /> Strength
+              </label>
+              <label className="inline">
+                <input type="radio" name="mode" checked={mode === "target"} onChange={() => setMode("target")} /> Target size
+              </label>
+            </div>
+            {mode === "quality" ? (
+              <label>
+                Strength
+                <select value={strength} onChange={(e) => setStrength(e.target.value)}>
+                  <option value="low">Low (print quality, 300 dpi images)</option>
+                  <option value="medium">Medium (ebook, 150 dpi images)</option>
+                  <option value="high">High (screen, 72 dpi images)</option>
+                </select>
+              </label>
+            ) : (
+              <label>
+                Target size (KB)
+                <input type="number" min={1} max={1000000} value={targetKb} onChange={(e) => setTargetKb(e.target.value)} required />
+              </label>
+            )}
+            <p className="hint">
+              Best effort: you get the smallest result that beats the original, and the original back if nothing does. Text
+              stays text. Encrypted, signed and fillable-form PDFs are not supported.
+            </p>
+          </>
+        ) : pdf ? (
           <>
             <label>
               Page size
@@ -333,13 +369,13 @@ function ToolScreen({ tool, onBack, onLoggedOut }: { tool: ToolName; onBack: () 
       {uploading ? (
         <progress value={progress} max={1} aria-label="Upload progress" />
       ) : (
-        <button disabled={!items.length}>{pdf ? "Make PDF" : "Convert"}</button>
+        <button disabled={!items.length}>{compress ? "Compress" : pdf ? "Make PDF" : "Convert"}</button>
       )}
     </form>
   );
 }
 
-function Dropzone({ onFiles }: { onFiles: (files: FileList | null) => void }) {
+function Dropzone({ onFiles, pdf }: { onFiles: (files: FileList | null) => void; pdf: boolean }) {
   const [over, setOver] = useState(false);
   function drop(e: DragEvent) {
     e.preventDefault();
@@ -358,15 +394,24 @@ function Dropzone({ onFiles }: { onFiles: (files: FileList | null) => void }) {
     >
       <input
         type="file"
-        multiple
-        accept={ACCEPT}
+        multiple={!pdf}
+        accept={pdf ? ACCEPT_PDF : ACCEPT}
         onChange={(e) => {
           onFiles(e.target.files);
           e.target.value = ""; // lets the same file be picked again
         }}
       />
-      <span>Drop images here or <u>choose files</u></span>
-      <small>JPEG, PNG, WebP, HEIC or AVIF · up to {MAX_FILES} files, 50 MB in total</small>
+      {pdf ? (
+        <>
+          <span>Drop a PDF here or <u>choose a file</u></span>
+          <small>One PDF · up to 50 MB and 100 pages</small>
+        </>
+      ) : (
+        <>
+          <span>Drop images here or <u>choose files</u></span>
+          <small>JPEG, PNG, WebP, HEIC or AVIF · up to {MAX_FILES} files, 50 MB in total</small>
+        </>
+      )}
     </label>
   );
 }
