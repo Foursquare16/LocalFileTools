@@ -14,5 +14,5 @@ def run(job_dir, inputs, options, report):
         shutil.copyfile(job_dir / "in" / str(n), tmp)
         os.replace(tmp, out_dir / str(n))
         outputs.append({"name": item["name"], "size": item["size"], "type": "application/octet-stream"})
-        report(outputs=outputs)
+    report(outputs=outputs)  # once, at the end: a partial batch must not look like a result
     return None

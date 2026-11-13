@@ -192,3 +192,12 @@ def test_untrusted_job_row_is_sanitised(logged_in):
     assert r.status_code == 200
     assert r.headers["content-type"] == "application/octet-stream"
     assert "set-cookie" not in r.headers
+    for garbage in ("{}", '[{"size": 1e999}]', "5"):
+        with db.jobs() as c:
+            c.execute("UPDATE jobs SET outputs = ? WHERE id = ?", (garbage, job_id))
+        assert logged_in.get(f"/api/jobs/{job_id}").json()["outputs"] == []
+
+
+def test_oversize_login_body_rejected(client):
+    r = client.post("/api/login", json={"username": USERNAME, "password": "x" * 100_000})
+    assert r.status_code == 413

@@ -82,7 +82,7 @@ Job states: `queued → processing → completed | failed | cancelled`. The brow
 
 - Reject up front when `Content-Length` exceeds the limit, then parse `request.stream()` with python-multipart directly, counting bytes and writing each file straight into the job dir. Abort past 50 MB or 30 files. FastAPI's `UploadFile` is not used: it spools the whole body to `/tmp` before the handler runs.
 - Reject when 5 jobs are already queued, or when the jobs volume is over the 2 GB budget.
-- Validate by content, not extension: Pillow's detected format for images, a pikepdf open for PDFs.
+- Validate by content, not extension: Pillow's detected format for images, a pikepdf open for PDFs. This runs in the worker's child process, never in web, so untrusted files are not parsed in the container that holds the password database.
 - Files live on disk under the job UUID and an index only. Original filenames are kept in the DB and sanitized at response time for `Content-Disposition`.
 
 ### Auth

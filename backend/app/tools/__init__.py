@@ -3,8 +3,9 @@
 Each module has `run(job_dir, inputs, options, report) -> message | None`:
 - inputs: [{name, size}]; input n is job_dir/"in"/str(n)
 - writes output n to job_dir/"out"/str(n) (write a temp file, then os.replace)
-- calls report(stage=...) and report(outputs=[{name, size, type}]) whenever it has a better result,
-  so a timeout can still return the best one
+- calls report(stage=...) as it goes
+- calls report(outputs=[{name, size, type}]) only with a complete, usable result (every input handled),
+  and again whenever it has a better one: a timeout returns the last reported outputs as "completed"
 - raises ToolError with a message for the user
 """
 

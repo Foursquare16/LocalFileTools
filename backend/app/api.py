@@ -31,9 +31,20 @@ CHUNK = 1024 * 1024
 
 
 def security_headers(app):
-    """nosniff + CSP on every response; no-store on everything under /api."""
+    """nosniff + CSP on every response; no-store on everything under /api; small request bodies except uploads."""
 
     async def wrapped(scope, receive, send):
+        seen = 0
+
+        async def limited_receive():
+            # FastAPI buffers a JSON body before any dependency runs, so an anonymous login could post 100 MB.
+            nonlocal seen
+            message = await receive()
+            seen += len(message.get("body", b""))
+            if seen > MAX_FIELD_BYTES:
+                raise HTTPException(413, "Request too large.")
+            return message
+
         async def send_with_headers(message):
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
@@ -43,7 +54,10 @@ def security_headers(app):
                     headers["Cache-Control"] = "no-store"
             await send(message)
 
-        await app(scope, receive, send_with_headers if scope["type"] == "http" else send)
+        if scope["type"] != "http":
+            return await app(scope, receive, send)
+        # The upload route enforces its own, larger limit.
+        await app(scope, receive if scope["path"] == "/api/jobs" else limited_receive, send_with_headers)
 
     return wrapped
 
@@ -229,7 +243,7 @@ def _file_list(raw) -> list[dict]:
             }
             for item in json.loads(raw)[:100]
         ]
-    except (ValueError, TypeError, AttributeError, RecursionError):
+    except Exception:  # the row is worker-writable: any shape of garbage means "no files"
         return []
 
 

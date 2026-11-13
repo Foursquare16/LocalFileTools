@@ -87,7 +87,7 @@ def run_job(job_id: str) -> None:
         if timed_out:
             row = jobs.get(c, job_id)
             if row and json.loads(row["outputs"]):
-                jobs.finish(c, job_id, "completed", "Time limit reached: this is the best result so far; the target was not reached.")
+                jobs.finish(c, job_id, "completed", "Time limit reached: this is the best result so far.")
             else:
                 jobs.finish(c, job_id, "failed", "Time limit reached before any result was produced.")
         jobs.finish(c, job_id, "failed", "Processing failed.")  # no-op unless the child died without finishing
