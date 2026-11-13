@@ -1,7 +1,9 @@
+import io
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from app import api, auth, config, db, jobs, worker
 
@@ -37,13 +39,19 @@ def logged_in(client):
     return client
 
 
-def upload(client, files, tool="echo", options="{}", **kwargs):
+def upload(client, files, tool="image", options="{}", **kwargs):
     return client.post(
         "/api/jobs",
         data={"tool": tool, "options": options},
         files=[("files", (name, data)) for name, data in files],
         **kwargs,
     )
+
+
+def image_bytes(size=(40, 30), fmt="PNG", mode="RGB", color="red", **save) -> bytes:
+    buf = io.BytesIO()
+    Image.new(mode, size, color).save(buf, fmt, **save)
+    return buf.getvalue()
 
 
 def run_next_job():

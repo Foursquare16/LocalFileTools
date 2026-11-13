@@ -17,6 +17,7 @@ STATIC_DIR = Path(os.environ.get("LFT_STATIC_DIR", "/app/static"))  # built fron
 MAX_QUEUED = _int("LFT_MAX_QUEUED", 5)
 MAX_UPLOAD_BYTES = _int("LFT_MAX_UPLOAD_MB", 50) * MB  # whole request body, per job
 MAX_FILES = _int("LFT_MAX_FILES", 30)
+MAX_IMAGE_MP = _int("LFT_MAX_IMAGE_MP", 60)  # megapixels per image
 JOB_TIMEOUT_SECONDS = _int("LFT_JOB_TIMEOUT_SECONDS", 300)
 DISK_BUDGET_BYTES = _int("LFT_DISK_BUDGET_MB", 2048) * MB  # jobs volume
 RETENTION_SECONDS = _int("LFT_RETENTION_SECONDS", 3600)

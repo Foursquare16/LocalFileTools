@@ -49,7 +49,7 @@ def security_headers(app):
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
                 headers["X-Content-Type-Options"] = "nosniff"
-                headers["Content-Security-Policy"] = "default-src 'self'; frame-ancestors 'none'"
+                headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' blob:; frame-ancestors 'none'"
                 if scope["path"].startswith("/api"):
                     headers["Cache-Control"] = "no-store"
             await send(message)

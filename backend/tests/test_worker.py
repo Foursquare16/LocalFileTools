@@ -96,8 +96,8 @@ def test_timeout_without_result_fails(logged_in, slow_child, monkeypatch):
 
 def test_restart_recovery():
     with db.jobs() as c:
-        jobs.create(c, "running", "echo", {}, [])
-        jobs.create(c, "waiting", "echo", {}, [])
+        jobs.create(c, "running", "image", {}, [])
+        jobs.create(c, "waiting", "image", {}, [])
         c.execute("UPDATE jobs SET created = created - 10 WHERE id = 'running'")
         assert jobs.claim(c)["id"] == "running"
     worker.recover()
@@ -112,7 +112,7 @@ def test_cleanup_after_expiry():
         (config.JOBS_DIR / job_id / "in").mkdir(parents=True)
     with db.jobs() as c:
         for name in ("expired", "recent", "queued"):
-            jobs.create(c, ids[name], "echo", {}, [])
+            jobs.create(c, ids[name], "image", {}, [])
         c.execute("UPDATE jobs SET status = 'completed', finished = ? WHERE id = ?", (old, ids["expired"]))
         c.execute("UPDATE jobs SET status = 'failed', finished = ? WHERE id = ?", (time.time(), ids["recent"]))
     os.utime(config.JOBS_DIR / ids["orphan"], (old, old))  # "uploading" is a fresh dir with no row yet

@@ -3,7 +3,8 @@ import os
 import uuid
 import zipfile
 
-from conftest import PASSWORD, USERNAME, job_dirs, run_next_job, upload
+from conftest import PASSWORD, USERNAME, image_bytes, job_dirs, run_next_job, upload
+from PIL import Image
 
 from app import config, db
 
@@ -77,7 +78,7 @@ def test_oversize_upload_rejected_by_content_length(logged_in, monkeypatch):
 def test_oversize_upload_rejected_while_streaming(logged_in, monkeypatch):
     monkeypatch.setattr(config, "MAX_UPLOAD_BYTES", 1000)
     body = (
-        b'--B\r\nContent-Disposition: form-data; name="tool"\r\n\r\necho\r\n'
+        b'--B\r\nContent-Disposition: form-data; name="tool"\r\n\r\nimage\r\n'
         b'--B\r\nContent-Disposition: form-data; name="files"; filename="a.bin"\r\n\r\n'
         + b"x" * 5000 + b"\r\n--B--\r\n"
     )
@@ -116,9 +117,9 @@ def test_bad_tool_and_options_rejected(logged_in):
     assert job_dirs() == []
 
 
-def test_echo_job_end_to_end(logged_in):
-    data = os.urandom(300_000)
-    r = upload(logged_in, [("photo ünï.bin", data), ("../../etc/passwd", b"second")])
+def test_image_job_end_to_end(logged_in):
+    png = image_bytes((300, 200))
+    r = upload(logged_in, [("photo ünï.png", png), ("../../etc/passwd", png)], options='{"format": "webp"}')
     assert r.status_code == 201
     job_id = r.json()["id"]
     assert logged_in.get(f"/api/jobs/{job_id}").json()["status"] == "queued"
@@ -127,28 +128,35 @@ def test_echo_job_end_to_end(logged_in):
     run_next_job()
     status = logged_in.get(f"/api/jobs/{job_id}").json()
     assert status["status"] == "completed", status
-    assert [o["name"] for o in status["outputs"]] == ["photo ünï.bin", "passwd"]
+    assert [o["name"] for o in status["outputs"]] == ["photo ünï.webp", "passwd.webp"]
 
     r = logged_in.get(f"/api/jobs/{job_id}/files/0")
-    assert r.content == data
-    assert r.headers["content-type"] == "application/octet-stream"
+    assert Image.open(io.BytesIO(r.content)).format == "WEBP"
+    assert r.headers["content-type"] == "image/webp"
     assert r.headers["content-disposition"].startswith("attachment;")
     assert r.headers["x-content-type-options"] == "nosniff"
     assert r.headers["cache-control"] == "no-store"
     assert "default-src 'self'" in r.headers["content-security-policy"]
 
     z = zipfile.ZipFile(io.BytesIO(logged_in.get(f"/api/jobs/{job_id}/zip").content))
-    assert z.read("photo ünï.bin") == data and z.read("passwd") == b"second"
+    assert z.read("photo ünï.webp") == r.content and z.namelist() == ["photo ünï.webp", "passwd.webp"]
 
     assert logged_in.delete(f"/api/jobs/{job_id}").status_code == 204
     assert logged_in.get(f"/api/jobs/{job_id}").status_code == 404
     assert job_dirs() == []
 
 
-def _completed_job(logged_in):
-    job_id = upload(logged_in, [("a.bin", b"public")]).json()["id"]
+def test_bad_image_fails_job_with_message(logged_in):
+    job_id = upload(logged_in, [("notes.jpg", b"not an image")], options='{"format": "png"}').json()["id"]
     run_next_job()
-    assert logged_in.get(f"/api/jobs/{job_id}/files/0").content == b"public"
+    status = logged_in.get(f"/api/jobs/{job_id}").json()
+    assert status["status"] == "failed" and "notes.jpg is not a supported image" in status["message"]
+
+
+def _completed_job(logged_in):
+    job_id = upload(logged_in, [("a.png", image_bytes())], options='{"format": "png"}').json()["id"]
+    run_next_job()
+    assert logged_in.get(f"/api/jobs/{job_id}/files/0").status_code == 200
     return job_id
 
 
