@@ -1,6 +1,7 @@
 # Updating and rolling back
 
-The image is built on the server from the checked-out source; there is no registry. A version is a git tag.
+A version is a git tag. The server either builds the image from the checked-out source (the first sections below)
+or pulls the image published for each tag (see [Using the published image](#using-the-published-image)).
 
 Restarting the worker fails any job that is processing at that moment ("Interrupted by a restart."); queued jobs
 stay queued. Update when nothing is running. Volumes, the owner account and `.env` are kept.
@@ -61,6 +62,31 @@ git checkout master && git pull && docker compose up -d --build
 
 The databases are created with `CREATE TABLE IF NOT EXISTS` and there are no migrations yet, so the current
 versions can be rolled back and forward over the same volumes.
+
+## Using the published image
+
+Pushing a tag like `v1.0.0` makes GitHub build and publish `ghcr.io/foursquare16/localfiletools:1.0.0`
+(`.github/workflows/image.yml`; the build takes a few minutes). A server that uses this image needs no source
+checkout and never builds.
+
+In `compose.yaml`, under `x-hardening`, remove `build: .` and pin the version:
+
+```yaml
+  image: ghcr.io/foursquare16/localfiletools:1.0.0
+```
+
+The two services can also be copied into another Compose project's file, for example the one that runs Navidrome.
+Set values from `.env.example` under `environment:` there if you do not want a second `.env`.
+
+To update or roll back, change the version number, then:
+
+```bash
+docker compose pull
+```
+
+```bash
+docker compose up -d
+```
 
 ## Updating together with Navidrome
 

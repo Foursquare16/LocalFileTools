@@ -15,7 +15,7 @@ Placeholders used below (replace them with your own values):
 ## 1. Install and create the owner
 
 ```bash
-git clone git@github.com:Foursquare16/LocalFileTools.git ~/LocalFileTools
+git clone https://github.com/Foursquare16/LocalFileTools.git ~/LocalFileTools
 ```
 
 ```bash

@@ -52,11 +52,11 @@ Fixed, not in `.env`:
 
 ## Quick start
 
-Needs Docker with Compose and git. The repository is private, so cloning needs a GitHub account with access to
-it (SSH shown here).
+Needs Docker with Compose and git. This builds the image from source; to run the published image instead, see
+[docs/update-rollback.md](docs/update-rollback.md).
 
 ```bash
-git clone git@github.com:Foursquare16/LocalFileTools.git
+git clone https://github.com/Foursquare16/LocalFileTools.git
 ```
 
 ```bash
