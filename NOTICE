@@ -1,0 +1,106 @@
+LocalFileTools
+Licensed under the GNU Affero General Public License, version 3 (see LICENSE).
+
+This file lists the third-party software that the Docker image runs or that the built web page contains.
+Each licence was taken from the installed package's own metadata or licence files (Python packages: the
+dist-info `License-Expression`, `License` or classifier fields and the files under `licenses/`; npm packages:
+the `license` field of their package.json; Ghostscript: Debian's /usr/share/doc/ghostscript/copyright in the
+image). Versions are those in backend/uv.lock and frontend/package-lock.json at the time of writing.
+The full licence texts ship inside each package (dist-info/licenses/ for Python wheels, the package
+directory for npm, /usr/share/doc/<package>/copyright for Debian packages).
+
+
+Python packages (runtime, from backend/uv.lock)
+-----------------------------------------------
+
+annotated-doc 0.0.6             MIT
+annotated-types 0.8.0           MIT
+anyio 4.16.0                    MIT
+argon2-cffi 25.1.0              MIT
+argon2-cffi-bindings 26.2.0     MIT; bundles the Argon2 reference code, CC0 (see below)
+cffi 2.1.1                      MIT-0
+click 8.5.1                     BSD-3-Clause
+fastapi 0.162.6                 MIT
+h11 0.16.0                      MIT
+idna 3.20                       BSD-3-Clause
+img2pdf 0.6.3                   LGPL-3.0-or-later (classifier says LGPLv3; the source header says
+                                "version 3 of the License, or (at your option) any later version")
+lxml 6.1.3                      BSD-3-Clause; bundles libraries (see below)
+opentelemetry-api 1.45.2        Apache-2.0
+packaging 26.3                  Apache-2.0 OR BSD-2-Clause
+pikepdf 10.18.1                 MPL-2.0; bundles libraries (see below)
+pillow 13.0.0                   MIT-CMU; bundles libraries (see below)
+pillow-heif 1.8.1               BSD-3-Clause for its source; its binary wheels as a whole are GPLv2
+                                because of the bundled x265 (see below)
+pycparser 3.12                  BSD-3-Clause
+pydantic 2.14.3                 MIT
+pydantic-core 2.50.4            MIT
+python-multipart 0.0.33         Apache-2.0
+starlette 1.10.0                BSD-3-Clause
+typing-extensions 4.16.0        PSF-2.0
+typing-inspection 0.4.5         MIT
+uvicorn 0.54.0                  BSD-3-Clause
+
+Development-only packages (pytest, httpx2 and their dependencies) are not in the image and are not listed.
+
+
+Libraries bundled inside the Python wheels (Linux x86_64 wheels, as installed in the image)
+---------------------------------------------------------------------------------------------
+
+pillow-heif 1.8.1, pillow_heif.libs/ (from pillow_heif-1.8.1.dist-info/licenses/LICENSES_bundled.txt):
+  libheif 1.23.6                LGPLv3
+  libde265 1.1.3                LGPLv3
+  x265 4.3                      GPLv2
+  The pillow-heif wheel states: "License for "pillow-heif" binary wheels: GPLv2, due to base library
+  licenses." LocalFileTools uses it only to decode HEIC input.
+
+pikepdf 10.18.1, pikepdf.libs/ (from third-party-licenses/README.md in its dist-info):
+  qpdf                          Apache-2.0
+  libjpeg-turbo                 IJG + BSD-3-Clause + Zlib
+  Data files in all pikepdf distributions: sRGB ICC profile (Zlib), veraPDF validation rules (CC-BY-4.0),
+  a pdfminer.six encoding table (MIT).
+
+pillow 13.0.0, pillow.libs/ (shared libraries present: libavif, libbrotlicommon, libbrotlidec, libfreetype,
+libharfbuzz, libjpeg, liblcms2, liblzma, libopenjp2, libpng16, libsharpyuv, libtiff, libwebp, libwebpdemux,
+libwebpmux, libXau, libxcb, libzstd). Pillow's LICENSE file carries the licence of each bundled component,
+under these headings: AOM, BROTLI, BZIP2, DAV1D, FREETYPE2, HARFBUZZ, LCMS2, LIBAVIF, LIBJPEG, LIBLZMA,
+LIBPNG, LIBTIFF, LIBWEBP, LIBYUV, OPENJPEG, RAQM, TCL_TK, XAU, XCB, XDMCP, ZLIB, ZSTD. Not every
+heading corresponds to a library in the Linux wheel. FreeType is offered under the FreeType License or
+GPL-2.0 (or later); the FreeType License asks for this credit:
+  Portions of this software are copyright (C) The FreeType Project (www.freetype.org).
+  All rights reserved.
+
+lxml 6.1.3, statically linked (from lxml-6.1.3.dist-info/licenses/LICENSES.txt):
+  libxml2 2.14.6                MIT
+  libxslt 1.1.43                MIT
+  zlib                          Zlib
+  iconv                         LGPL-2.1
+
+argon2-cffi-bindings 26.2.0, compiled in (from its METADATA):
+  Argon2 reference implementation, its encoding routines and BLAKE2 code: CC0-1.0
+
+pydantic-core 2.50.4 is compiled from Rust and statically includes Rust crates. Their individual licences
+are not recorded in the installed package's metadata and could not be confirmed here.
+
+
+System packages in the image
+----------------------------
+
+Ghostscript 10.05.1 (Debian packages ghostscript and libgs10, from the Debian release the
+python:3.13-slim base image is built on)
+                                AGPL-3.0-or-later ("AGPL-3+") for Ghostscript itself, per Debian's
+                                copyright files; those files also list parts under other licences
+                                (Apache-2.0, BSD-3-Clause, Expat variants, GPL-2, and others).
+Python 3.13 and the Debian base system come from the official python:3.13-slim image; their licences are
+in /usr/share/doc/ inside the image and, for Python, in the LICENSE file of the CPython distribution.
+
+
+Frontend (bundled into the built page)
+--------------------------------------
+
+react 19.3.1                    MIT
+react-dom 19.3.1                MIT
+scheduler 0.28.0                MIT
+
+Build-time-only packages (vite, typescript, @vitejs/plugin-react, @types/*) are not shipped, except for the
+small module-preload helper Vite adds to the bundle; Vite is MIT licensed.
