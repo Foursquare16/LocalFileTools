@@ -1,0 +1,194 @@
+import io
+import os
+import uuid
+import zipfile
+
+from conftest import PASSWORD, USERNAME, job_dirs, run_next_job, upload
+
+from app import config, db
+
+
+def test_anonymous_gets_401(client):
+    job = f"/api/jobs/{uuid.uuid4()}"
+    assert client.get(job).status_code == 401
+    assert client.get(job + "/files/0").status_code == 401
+    assert client.delete(job).status_code == 401
+    assert upload(client, [("a.bin", b"x")]).status_code == 401
+    assert client.get("/api/session").json() == {"authenticated": False}
+    assert job_dirs() == []
+
+
+def test_login_sets_strict_cookie_and_logout_ends_session(logged_in):
+    assert logged_in.get("/api/session").json() == {"authenticated": True}
+    assert logged_in.post("/api/logout").status_code == 204
+    assert logged_in.get("/api/session").json() == {"authenticated": False}
+
+
+def test_cookie_flags(client):
+    r = client.post("/api/login", json={"username": USERNAME, "password": PASSWORD})
+    cookie = r.headers["set-cookie"].lower()
+    assert "httponly" in cookie and "secure" in cookie and "samesite=strict" in cookie
+    with db.state() as c:  # only the hash is stored
+        (stored,) = c.execute("SELECT token_hash FROM sessions").fetchone()
+    assert stored != client.cookies["session"]
+
+
+def test_expired_session_is_rejected(logged_in):
+    with db.state() as c:
+        c.execute("UPDATE sessions SET expires = 0")
+    assert logged_in.get(f"/api/jobs/{uuid.uuid4()}").status_code == 401
+    assert logged_in.get("/api/session").json() == {"authenticated": False}
+
+
+def test_cross_origin_post_rejected(logged_in):
+    assert upload(logged_in, [("a.bin", b"x")], headers={"Origin": "https://evil.example"}).status_code == 403
+    no_origin = {k: v for k, v in logged_in.headers.items() if k.lower() != "origin"}
+    logged_in.headers = no_origin
+    assert upload(logged_in, [("a.bin", b"x")]).status_code == 403
+
+
+def test_missing_custom_header_rejected(logged_in):
+    del logged_in.headers["X-LFT"]
+    assert upload(logged_in, [("a.bin", b"x")]).status_code == 403
+    assert logged_in.post("/api/logout").status_code == 403
+    assert job_dirs() == []
+
+
+def test_login_cross_origin_rejected(client):
+    r = client.post("/api/login", json={"username": USERNAME, "password": PASSWORD}, headers={"Origin": "https://evil.example"})
+    assert r.status_code == 403
+
+
+def test_login_rate_limit(client):
+    for _ in range(5):
+        assert client.post("/api/login", json={"username": USERNAME, "password": "wrong"}).status_code == 401
+    # Locked out now, even with the right password; another IP is not.
+    assert client.post("/api/login", json={"username": USERNAME, "password": PASSWORD}).status_code == 429
+    other = client.post("/api/login", json={"username": USERNAME, "password": PASSWORD}, headers={"CF-Connecting-IP": "203.0.113.9"})
+    assert other.status_code == 204
+
+
+def test_oversize_upload_rejected_by_content_length(logged_in, monkeypatch):
+    monkeypatch.setattr(config, "MAX_UPLOAD_BYTES", 1000)
+    assert upload(logged_in, [("a.bin", b"x" * 2000)]).status_code == 413
+    assert job_dirs() == []
+
+
+def test_oversize_upload_rejected_while_streaming(logged_in, monkeypatch):
+    monkeypatch.setattr(config, "MAX_UPLOAD_BYTES", 1000)
+    body = (
+        b'--B\r\nContent-Disposition: form-data; name="tool"\r\n\r\necho\r\n'
+        b'--B\r\nContent-Disposition: form-data; name="files"; filename="a.bin"\r\n\r\n'
+        + b"x" * 5000 + b"\r\n--B--\r\n"
+    )
+    # A generator body is sent chunked, without Content-Length, so only the streaming count can catch it.
+    chunks = (body[i : i + 512] for i in range(0, len(body), 512))
+    r = logged_in.post("/api/jobs", content=chunks, headers={"Content-Type": "multipart/form-data; boundary=B"})
+    assert r.status_code == 413
+    assert job_dirs() == []
+
+
+def test_too_many_files_rejected(logged_in, monkeypatch):
+    monkeypatch.setattr(config, "MAX_FILES", 2)
+    assert upload(logged_in, [(f"{i}.bin", b"x") for i in range(3)]).status_code == 400
+    assert job_dirs() == []
+    assert upload(logged_in, [(f"{i}.bin", b"x") for i in range(2)]).status_code == 201
+
+
+def test_queue_full_rejected(logged_in, monkeypatch):
+    monkeypatch.setattr(config, "MAX_QUEUED", 1)
+    assert upload(logged_in, [("a.bin", b"x")]).status_code == 201
+    assert upload(logged_in, [("b.bin", b"x")]).status_code == 503
+    assert len(job_dirs()) == 1
+
+
+def test_disk_budget_exceeded_rejected(logged_in, monkeypatch):
+    monkeypatch.setattr(config, "DISK_BUDGET_BYTES", 100_000)
+    (config.JOBS_DIR / "leftover.bin").write_bytes(b"x" * 100_001)
+    assert upload(logged_in, [("a.bin", b"x")]).status_code == 507
+    assert job_dirs() == []
+
+
+def test_bad_tool_and_options_rejected(logged_in):
+    assert upload(logged_in, [("a.bin", b"x")], tool="nope").status_code == 400
+    assert upload(logged_in, [("a.bin", b"x")], options="[1]").status_code == 400
+    assert upload(logged_in, [("a.bin", b"x")], options="{bad").status_code == 400
+    assert job_dirs() == []
+
+
+def test_echo_job_end_to_end(logged_in):
+    data = os.urandom(300_000)
+    r = upload(logged_in, [("photo ünï.bin", data), ("../../etc/passwd", b"second")])
+    assert r.status_code == 201
+    job_id = r.json()["id"]
+    assert logged_in.get(f"/api/jobs/{job_id}").json()["status"] == "queued"
+    assert sorted(os.listdir(config.JOBS_DIR / job_id / "in")) == ["0", "1"]  # names never reach the disk
+
+    run_next_job()
+    status = logged_in.get(f"/api/jobs/{job_id}").json()
+    assert status["status"] == "completed", status
+    assert [o["name"] for o in status["outputs"]] == ["photo ünï.bin", "passwd"]
+
+    r = logged_in.get(f"/api/jobs/{job_id}/files/0")
+    assert r.content == data
+    assert r.headers["content-type"] == "application/octet-stream"
+    assert r.headers["content-disposition"].startswith("attachment;")
+    assert r.headers["x-content-type-options"] == "nosniff"
+    assert r.headers["cache-control"] == "no-store"
+    assert "default-src 'self'" in r.headers["content-security-policy"]
+
+    z = zipfile.ZipFile(io.BytesIO(logged_in.get(f"/api/jobs/{job_id}/zip").content))
+    assert z.read("photo ünï.bin") == data and z.read("passwd") == b"second"
+
+    assert logged_in.delete(f"/api/jobs/{job_id}").status_code == 204
+    assert logged_in.get(f"/api/jobs/{job_id}").status_code == 404
+    assert job_dirs() == []
+
+
+def _completed_job(logged_in):
+    job_id = upload(logged_in, [("a.bin", b"public")]).json()["id"]
+    run_next_job()
+    assert logged_in.get(f"/api/jobs/{job_id}/files/0").content == b"public"
+    return job_id
+
+
+def test_symlinked_output_file_not_served(logged_in):
+    job_id = _completed_job(logged_in)
+    secret = config.STATE_DIR / "state.sqlite"
+    out = config.JOBS_DIR / job_id / "out" / "0"
+    out.unlink()
+    out.symlink_to(secret)
+    assert logged_in.get(f"/api/jobs/{job_id}/files/0").status_code == 404
+    assert logged_in.get(f"/api/jobs/{job_id}/zip").status_code == 404
+
+
+def test_symlinked_output_dir_not_served(logged_in, tmp_path):
+    job_id = _completed_job(logged_in)
+    (tmp_path / "evil").mkdir()
+    (tmp_path / "evil" / "0").write_bytes(b"secret")
+    out = config.JOBS_DIR / job_id / "out"
+    (out / "0").unlink()
+    out.rmdir()
+    out.symlink_to(tmp_path / "evil")
+    assert logged_in.get(f"/api/jobs/{job_id}/files/0").status_code == 404
+
+
+def test_fifo_output_not_served(logged_in):
+    job_id = _completed_job(logged_in)
+    out = config.JOBS_DIR / job_id / "out" / "0"
+    out.unlink()
+    os.mkfifo(out)
+    assert logged_in.get(f"/api/jobs/{job_id}/files/0").status_code == 404
+
+
+def test_untrusted_job_row_is_sanitised(logged_in):
+    job_id = _completed_job(logged_in)
+    with db.jobs() as c:
+        c.execute(
+            "UPDATE jobs SET outputs = ? WHERE id = ?",
+            ('[{"name": "x\\r\\nSet-Cookie: a=b", "size": 6, "type": "text/html"}]', job_id),
+        )
+    r = logged_in.get(f"/api/jobs/{job_id}/files/0")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/octet-stream"
+    assert "set-cookie" not in r.headers
