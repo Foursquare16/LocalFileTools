@@ -9,7 +9,7 @@ Each module has `run(job_dir, inputs, options, report) -> message | None`:
 - raises ToolError with a message for the user
 """
 
-NAMES = {"image", "images_to_pdf"}
+NAMES = {"image", "images_to_pdf", "pdf_compress"}
 
 
 class ToolError(Exception):
