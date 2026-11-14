@@ -81,7 +81,30 @@ The app now listens on `http://127.0.0.1:8080`, on the server only. Open it in a
 or publish it with a Cloudflare Tunnel as described in [docs/deploy.md](docs/deploy.md). The login cookie is marked
 `Secure`, so from other machines it only works over HTTPS, unless you set `LFT_LAN_HOST` (deploy guide, case C).
 
-Running `create-owner` again resets the password and signs out every session.
+Running `create-owner` again resets the password and signs out every password login.
+
+## Guest links
+
+To let someone else use the app without your password, print a link for them (here valid for 48 hours):
+
+```bash
+docker compose exec web python -m app.cli invite alex --hours 48 --url https://files.example.com
+```
+
+Whoever opens the link is logged in until it expires, on any of their devices. Send it privately: anyone who has
+the link can use the app. Guests share the same queue and limits as you, and nobody sees anyone else's files.
+
+```bash
+docker compose exec web python -m app.cli invites
+```
+
+lists the links that still work, and
+
+```bash
+docker compose exec web python -m app.cli revoke alex
+```
+
+cancels a guest's links at once. `create-owner` does not cancel guest links.
 
 ## Tests
 

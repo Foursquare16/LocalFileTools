@@ -53,7 +53,7 @@ backend/
     api.py              # FastAPI routes + static frontend
     jobs.py             # create / claim / finish / cancel / delete
     worker.py           # claim loop, child process per job, cleanup timer
-    cli.py              # `create-owner`
+    cli.py              # `create-owner`, guest links: `invite`, `invites`, `revoke`
     tools/
       image.py          # convert + compress + resize
       images_to_pdf.py

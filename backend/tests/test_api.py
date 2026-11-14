@@ -1,5 +1,6 @@
 import io
 import os
+import re
 import threading
 import time
 import uuid
@@ -11,7 +12,7 @@ from conftest import ORIGIN, PASSWORD, USERNAME, image_bytes, job_dirs, run_next
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from app import api, auth, config, db
+from app import api, auth, cli, config, db
 
 
 def test_anonymous_gets_401(client):
@@ -50,6 +51,56 @@ def test_lan_host_gets_a_cookie_that_works_over_plain_http(client, monkeypatch):
     # Any other host, the tunnel's included, still gets the Secure cookie.
     r = client.post("/api/login", json={"username": USERNAME, "password": PASSWORD})
     assert "secure" in r.headers["set-cookie"].lower()
+
+
+def guest_client():
+    return TestClient(api.app, base_url=ORIGIN, headers={"Origin": ORIGIN, "X-LFT": "1"})
+
+
+def test_guest_link_logs_in_until_revoked(capsys):
+    cli.main(["invite", "ravi", "--hours", "1", "--url", "https://files.example.com/"])
+    (link,) = [line for line in capsys.readouterr().out.splitlines() if "#invite=" in line]
+    assert link.startswith("https://files.example.com/#invite=")
+    token = link.split("#invite=")[1]
+    with db.state() as c:  # only the hash is stored
+        assert c.execute("SELECT token_hash FROM invites").fetchone()[0] != token
+
+    guest = guest_client()
+    assert guest.post("/api/invite", json={"token": "not-a-real-token"}).status_code == 401
+    r = guest.post("/api/invite", json={"token": token})
+    cookie = r.headers["set-cookie"].lower()
+    assert r.status_code == 204 and "httponly" in cookie and "secure" in cookie and "samesite=strict" in cookie
+    assert 3590 <= int(re.search(r"max-age=(\d+)", cookie).group(1)) <= 3600  # the cookie dies with the link
+    assert upload(guest, [("a.png", image_bytes())]).status_code == 201
+
+    # Logging out only clears this browser; the link still works, also on another device.
+    assert guest.post("/api/logout").status_code == 204
+    assert guest.get("/api/session").json() == {"authenticated": False}
+    assert guest.post("/api/invite", json={"token": token}).status_code == 204
+
+    cli.main(["invites"])
+    assert "ravi: 1.0 hours left" in capsys.readouterr().out
+    cli.main(["revoke", "ravi"])
+    assert guest.get("/api/session").json() == {"authenticated": False}
+    assert guest.post("/api/invite", json={"token": token}).status_code == 401
+
+
+def test_expired_guest_link_is_rejected():
+    token = auth.create_invite("old", 1)
+    guest = guest_client()
+    assert guest.post("/api/invite", json={"token": token}).status_code == 204
+    with db.state() as c:
+        c.execute("UPDATE invites SET expires = 0")
+    assert guest.get("/api/session").json() == {"authenticated": False}
+    assert guest.post("/api/invite", json={"token": token}).status_code == 401
+
+
+def test_guest_link_needs_the_csrf_header():
+    token = auth.create_invite("x", 1)
+    r = TestClient(api.app, base_url=ORIGIN, headers={"Origin": "https://evil.example", "X-LFT": "1"}).post(
+        "/api/invite", json={"token": token}
+    )
+    assert r.status_code == 403
 
 
 def test_expired_session_is_rejected(logged_in):

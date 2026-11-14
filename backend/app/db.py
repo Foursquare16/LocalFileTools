@@ -15,6 +15,11 @@ CREATE TABLE IF NOT EXISTS sessions (
     token_hash TEXT PRIMARY KEY,  -- sha256 of the cookie token; the token itself is never stored
     expires REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS invites (
+    token_hash TEXT PRIMARY KEY,  -- sha256 of a guest link's token, which doubles as that guest's cookie
+    name TEXT NOT NULL,
+    expires REAL NOT NULL
+);
 """
 
 JOBS_SCHEMA = """

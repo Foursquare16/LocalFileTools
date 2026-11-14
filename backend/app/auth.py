@@ -95,6 +95,27 @@ def logout(token: str | None) -> None:
             c.execute("DELETE FROM sessions WHERE token_hash = ?", (_token_hash(token),))
 
 
+def create_invite(name: str, hours: float) -> str:
+    """A guest link's token: it logs in whoever holds it, without a password, until it expires or is revoked."""
+    token, now = secrets.token_urlsafe(32), time.time()
+    with db.state() as c:
+        c.execute("DELETE FROM invites WHERE expires <= ?", (now,))
+        c.execute("INSERT INTO invites VALUES (?, ?, ?)", (_token_hash(token), name, now + hours * 3600))
+    return token
+
+
+def invite_seconds(token: str | None) -> int | None:
+    """Seconds until this guest token stops working; None if it is not a live one."""
+    if not token:
+        return None
+    now = time.time()
+    with db.state() as c:
+        row = c.execute(
+            "SELECT expires FROM invites WHERE token_hash = ? AND expires > ?", (_token_hash(token), now)
+        ).fetchone()
+    return int(row["expires"] - now) if row else None
+
+
 def has_session(request: Request) -> bool:
     token = request.cookies.get(COOKIE)
     if not token:
@@ -103,7 +124,7 @@ def has_session(request: Request) -> bool:
         row = c.execute(
             "SELECT 1 FROM sessions WHERE token_hash = ? AND expires > ?", (_token_hash(token), time.time())
         ).fetchone()
-    return row is not None
+    return row is not None or invite_seconds(token) is not None
 
 
 def require_session(request: Request) -> None:

@@ -88,6 +88,19 @@ def login(body: Credentials, request: Request, response: Response):
     response.set_cookie(auth.COOKIE, token, max_age=config.SESSION_SECONDS, **_cookie_flags(request))
 
 
+class Invite(BaseModel):
+    token: str
+
+
+@public.post("/invite", status_code=204)
+def redeem_invite(body: Invite, request: Request, response: Response):
+    """Turn a guest link's token into the session cookie. The cookie dies with the link."""
+    seconds = auth.invite_seconds(body.token)
+    if seconds is None:
+        raise HTTPException(401, "This guest link has expired or was cancelled.")
+    response.set_cookie(auth.COOKIE, body.token, max_age=seconds, **_cookie_flags(request))
+
+
 @public.post("/logout", status_code=204)
 def logout(request: Request, response: Response):
     auth.logout(request.cookies.get(auth.COOKIE))

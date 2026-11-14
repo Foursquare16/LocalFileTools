@@ -33,7 +33,7 @@ docker compose exec web python -m app.cli create-owner
 ```
 
 To reset the password later, run `create-owner` again. It replaces the owner (username and password) and signs out
-every session.
+every password login. Guest links keep working; see the README for how to list and cancel them.
 
 Check that it answers on the server:
 

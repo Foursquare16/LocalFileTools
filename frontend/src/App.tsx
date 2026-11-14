@@ -5,10 +5,23 @@ const SOURCE_URL = "https://github.com/Foursquare16/LocalFileTools";
 
 export default function App() {
   const [authed, setAuthed] = useState<boolean | null>(null);
+  const [notice, setNotice] = useState("");
 
   useEffect(() => {
+    // A guest link carries its token after the #, which browsers never send to the server or to other sites.
+    const invite = new URLSearchParams(location.hash.slice(1)).get("invite");
+    if (invite) history.replaceState(null, "", location.pathname);
     api<{ authenticated: boolean }>("/session")
-      .then((s) => setAuthed(s.authenticated))
+      .then(async (s) => {
+        if (s.authenticated || !invite) return s.authenticated;
+        const body = JSON.stringify({ token: invite });
+        await api("/invite", { method: "POST", headers: { "Content-Type": "application/json" }, body }).catch((err) => {
+          setNotice((err as Error).message);
+          throw err;
+        });
+        return true;
+      })
+      .then(setAuthed)
       .catch(() => setAuthed(false));
   }, []);
 
@@ -28,7 +41,10 @@ export default function App() {
           </button>
         )}
       </header>
-      <main>{authed ? <Tools onLoggedOut={() => setAuthed(false)} /> : <Login onLoggedIn={() => setAuthed(true)} />}</main>
+      <main>
+        {!authed && notice && <p className="error" role="alert">{notice}</p>}
+        {authed ? <Tools onLoggedOut={() => setAuthed(false)} /> : <Login onLoggedIn={() => setAuthed(true)} />}
+      </main>
       <footer>
         Free software (AGPL-3.0): <a href={SOURCE_URL}>source code</a>
       </footer>

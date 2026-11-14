@@ -61,6 +61,10 @@ All responses carry a strict Content Security Policy (`default-src 'self'`, no f
 ## Login and request checks
 
 - One owner account, created or reset with `python -m app.cli create-owner`. No signup.
+- Guest links (`python -m app.cli invite NAME`) let other people in without the password. The link carries a random
+  token after the `#`, which browsers do not send to servers, so it stays out of access logs. The page posts it to
+  `/api/invite`, and it becomes that guest's session cookie until the link expires (30 days at most) or is revoked.
+  Only its hash is stored. A guest can do everything the owner can do in the page; there are no guest-only limits.
 - Sessions last 7 days and are stored server-side. The cookie is `HttpOnly; Secure; SameSite=Strict`.
   `Secure` is left off only for requests whose `Host` equals `LFT_LAN_HOST`, when that is set.
 - Every request other than GET or HEAD must have an `Origin` whose host equals the `Host` header, and an `X-LFT: 1` header.
