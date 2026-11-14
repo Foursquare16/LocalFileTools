@@ -1,13 +1,17 @@
 import io
 import os
+import threading
+import time
 import uuid
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 
-from conftest import PASSWORD, USERNAME, image_bytes, job_dirs, run_next_job, upload
+from argon2.exceptions import VerificationError
+from conftest import ORIGIN, PASSWORD, USERNAME, image_bytes, job_dirs, run_next_job, upload
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from app import api, config, db
+from app import api, auth, config, db
 
 
 def test_anonymous_gets_401(client):
@@ -81,6 +85,55 @@ def test_login_rate_limit(client):
     assert client.post("/api/login", json={"username": USERNAME, "password": PASSWORD}).status_code == 429
     other = client.post("/api/login", json={"username": USERNAME, "password": PASSWORD}, headers={"CF-Connecting-IP": "203.0.113.9"})
     assert other.status_code == 204
+
+
+def wrong_logins(peer, claimed_ips):
+    """Status of one failed login per claimed address, all sent over a connection from `peer`."""
+    c = TestClient(api.app, base_url=ORIGIN, headers={"Origin": ORIGIN, "X-LFT": "1"}, client=(peer, 50000))
+    return [
+        c.post("/api/login", json={"username": USERNAME, "password": "wrong"}, headers={"CF-Connecting-IP": ip}).status_code
+        for ip in claimed_ips
+    ]
+
+
+def test_address_header_is_believed_only_from_the_proxy(client, monkeypatch):
+    monkeypatch.setattr(config, "PROXY_IPS", "172.16.0.0/12")
+    claimed = [f"203.0.113.{n}" for n in range(6)]
+    # A LAN device inventing a new address per guess is still one client.
+    assert wrong_logins("192.168.0.50", claimed) == [401] * 5 + [429]
+    # Through the tunnel the header is real: six visitors, six separate counters.
+    assert wrong_logins("172.19.0.1", claimed) == [401] * 6
+
+
+def test_one_ipv6_network_is_one_client(client):
+    assert wrong_logins("testclient", [f"2001:db8:1:2::{n:x}" for n in range(1, 7)]) == [401] * 5 + [429]
+    assert wrong_logins("testclient", ["2001:db8:1:3::1"]) == [401]
+
+
+def test_password_checks_run_one_at_a_time(client, monkeypatch):
+    """Each real check takes 64 MiB; in parallel they could exhaust the container's memory."""
+    count_lock, state = threading.Lock(), {"running": 0, "peak": 0}
+
+    class SlowHasher:
+        def verify(self, hash, password):
+            with count_lock:
+                state["running"] += 1
+                state["peak"] = max(state["peak"], state["running"])
+            time.sleep(0.02)
+            with count_lock:
+                state["running"] -= 1
+            raise VerificationError
+
+    def attempt(n):
+        try:
+            auth.login(f"203.0.113.{n}", USERNAME, "wrong")
+        except Exception:
+            pass
+
+    monkeypatch.setattr(auth, "_hasher", SlowHasher())
+    with ThreadPoolExecutor(8) as pool:
+        list(pool.map(attempt, range(8)))
+    assert state["peak"] == 1
 
 
 def test_oversize_upload_rejected_by_content_length(logged_in, monkeypatch):

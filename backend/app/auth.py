@@ -1,6 +1,7 @@
 """Owner login, server-side sessions, login rate limit and the CSRF check."""
 
 import hashlib
+import ipaddress
 import secrets
 import threading
 import time
@@ -21,6 +22,8 @@ _DUMMY_HASH = _hasher.hash(secrets.token_hex(16))  # verified when there is no o
 # ip -> (attempts, time the count resets). shortcut: in-memory and per process; fine for one uvicorn worker.
 _failures: dict[str, tuple[int, float]] = {}
 _lock = threading.Lock()
+# One password check at a time: each takes 64 MiB, and it caps guessing speed whatever address the guesses come from.
+_verify_lock = threading.Lock()
 
 
 def hash_password(password: str) -> str:
@@ -31,9 +34,25 @@ def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+def _from_proxy(peer: str) -> bool:
+    if not config.PROXY_IPS:
+        return True  # nothing but cloudflared can reach the web port (deploy cases A and B)
+    try:
+        addr = ipaddress.ip_address(peer)
+    except ValueError:
+        return False
+    return any(addr in ipaddress.ip_network(n.strip(), strict=False) for n in config.PROXY_IPS.split(","))
+
+
 def client_ip(request: Request) -> str:
-    # Trustworthy because only cloudflared can reach the web port (plan §4).
-    return request.headers.get("cf-connecting-ip") or (request.client.host if request.client else "")
+    """The address the login rate limit counts by. CF-Connecting-IP is believed only when the proxy sent it."""
+    peer = request.client.host if request.client else ""
+    ip = (_from_proxy(peer) and request.headers.get("cf-connecting-ip")) or peer
+    try:
+        # One IPv6 customer holds a whole /64, so count that as one client.
+        return str(ipaddress.ip_network(f"{ip}/64", strict=False)) if ipaddress.ip_address(ip).version == 6 else ip
+    except ValueError:
+        return ip
 
 
 def login(ip: str, username: str, password: str) -> str:
@@ -54,7 +73,8 @@ def login(ip: str, username: str, password: str) -> str:
     with db.state() as c:
         owner = c.execute("SELECT username, password_hash FROM owner WHERE id = 1").fetchone()
     try:
-        ok = _hasher.verify(owner["password_hash"] if owner else _DUMMY_HASH, password)
+        with _verify_lock:
+            ok = _hasher.verify(owner["password_hash"] if owner else _DUMMY_HASH, password)
     except (VerificationError, InvalidHashError):
         ok = False
     if not (ok and owner and secrets.compare_digest(owner["username"].encode(), username.encode())):

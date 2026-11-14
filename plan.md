@@ -91,7 +91,7 @@ Job states: `queued → processing → completed | failed | cancelled`. The brow
 - Argon2 hashes. 7-day server-side session; only the token hash is stored. Cookie `HttpOnly; Secure; SameSite=Strict`
   (`Secure` is left off only for the opt-in plain-HTTP LAN address, `LFT_LAN_HOST`).
 - CSRF: `SameSite=Strict` + Origin check + a required custom header on mutating requests.
-- Login rate limit: 5 failures per IP → 15-minute lockout (in-memory). IP read from `CF-Connecting-IP`, trustworthy because only cloudflared can reach the port.
+- Login rate limit: 5 failures per IP → 15-minute lockout (in-memory). IP read from `CF-Connecting-IP`, trustworthy because only cloudflared can reach the port (when something else can, `LFT_PROXY_IPS` names the proxy). An IPv6 /64 counts as one IP; password checks run one at a time.
 
 ### Storage
 

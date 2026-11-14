@@ -26,6 +26,9 @@ CLEANUP_INTERVAL_SECONDS = _int("LFT_CLEANUP_INTERVAL_SECONDS", 300)
 
 # Optional "host:port" for plain-HTTP access on the LAN: only requests to this exact Host get a non-Secure cookie.
 LAN_HOST = os.environ.get("LFT_LAN_HOST", "")
+# Optional comma-separated addresses or networks of the proxy (cloudflared). When set, CF-Connecting-IP is believed
+# only on connections from them. Needed when anything else can reach the web port, as with LFT_LAN_HOST.
+PROXY_IPS = os.environ.get("LFT_PROXY_IPS", "")
 
 SESSION_SECONDS = 7 * 24 * 3600
 LOGIN_MAX_FAILURES = 5

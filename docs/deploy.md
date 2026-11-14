@@ -125,7 +125,9 @@ docker compose up -d
 `service: http://localfiletools:8080`).
 
 In this case any container on that network (Navidrome included) can reach web directly and could set its own
-`CF-Connecting-IP` header, which the login rate limit trusts. The worker is not affected; it has no network at all.
+`CF-Connecting-IP` header, which the login rate limit trusts. To stop that, set `LFT_PROXY_IPS` in `.env` to the
+cloudflared container's address (see [the note under case C](#finding-the-tunnels-address)). The worker is not
+affected; it has no network at all.
 
 The network must exist before LocalFileTools starts, so start Navidrome's project first after changes to it.
 
@@ -142,11 +144,20 @@ services:
     ports: !override ["192.168.1.10:8080:8080"]
 ```
 
-Set the same address and port in `.env`, then apply both:
+Set the same address and port in `.env`, together with the address the tunnel's requests come from, then apply:
 
 ```
 LFT_LAN_HOST=192.168.1.10:8080
+LFT_PROXY_IPS=172.16.0.0/12
 ```
+
+#### Finding the tunnel's address
+
+`LFT_PROXY_IPS` tells the app which connections are the tunnel, so that only they are allowed to report a visitor's
+address for the login rate limit. Open the public hostname once, then look at the address at the start of the newest
+line in `docker compose logs --tail 5 web`. For a cloudflared container that reaches the LAN address it is a Docker
+gateway such as `172.19.0.1`, and `172.16.0.0/12` covers Docker's default range. For cloudflared as a host service
+it is the server's own LAN address. Leave `LFT_PROXY_IPS` empty if there is no tunnel.
 
 ```bash
 docker compose up -d
@@ -158,8 +169,8 @@ What you accept with this case:
 
 - On the LAN the connection is plain HTTP: the password, the session cookie and your files are not encrypted there.
   Without `LFT_LAN_HOST` the page loads but login does not work, because browsers drop a `Secure` cookie over HTTP.
-- Every device on the LAN can reach the login page and can set its own `CF-Connecting-IP` header, which the login
-  rate limit trusts. Use a strong password.
+- Every device on the LAN can reach the login page. With `LFT_PROXY_IPS` set as above, a device cannot dodge the
+  login rate limit by inventing visitor addresses. Use a strong password all the same.
 - The address must match what the browser sends as `Host`, port included. If the server's LAN address changes,
   update both files.
 

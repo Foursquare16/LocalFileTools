@@ -64,9 +64,13 @@ All responses carry a strict Content Security Policy (`default-src 'self'`, no f
 - Sessions last 7 days and are stored server-side. The cookie is `HttpOnly; Secure; SameSite=Strict`.
   `Secure` is left off only for requests whose `Host` equals `LFT_LAN_HOST`, when that is set.
 - Every request other than GET or HEAD must have an `Origin` whose host equals the `Host` header, and an `X-LFT: 1` header.
-- Five failed logins from one IP lock that IP out for 15 minutes. The IP is read from `CF-Connecting-IP`, which is
-  only trustworthy because nothing but cloudflared can reach the web port. The counter is kept in memory and resets
-  when web restarts.
+- Five failed logins from one IP lock that IP out for 15 minutes; an IPv6 /64 network counts as one IP. The IP is
+  read from `CF-Connecting-IP`. By default that header is believed from anyone, which is only safe while nothing but
+  cloudflared can reach the web port; with `LFT_PROXY_IPS` set it is believed only on connections from those
+  addresses, and other connections are counted by their own address. The counter is kept in memory and resets when
+  web restarts.
+- Password checks run one at a time. That caps guessing speed whatever addresses the guesses come from, and keeps
+  parallel checks (64 MiB each) from exhausting web's memory.
 
 ## Tools
 
