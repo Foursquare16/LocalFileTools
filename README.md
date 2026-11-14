@@ -9,7 +9,7 @@ sent to an external conversion service.
 | Tool | What it does | Accepts | Produces |
 |---|---|---|---|
 | Image tool | Convert, resize (keeps proportions, only shrinks), compress to a quality or a best-effort target size per image | JPEG, PNG, WebP, HEIC, AVIF | JPEG, PNG or WebP, one file per input |
-| Images → PDF | Put several images into one PDF; reorder and rotate them; A4 or image-sized pages; margin | JPEG, PNG, WebP, HEIC, AVIF | One PDF |
+| Images → PDF | Put several images into one PDF; reorder (drag or keyboard), rotate and crop them; A4 or image-sized pages; margin; choose the file name | JPEG, PNG, WebP, HEIC, AVIF | One PDF |
 | PDF compressor | Make a PDF smaller with a strength (low, medium, high) or a target size; returns the smallest result that beats the original | One PDF | One PDF |
 
 Files are checked by their content, not their extension. Target sizes work for JPEG and WebP only (PNG has no quality

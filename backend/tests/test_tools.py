@@ -184,11 +184,93 @@ def test_pdf_a4_with_margin(tmp_path):
         ({"margin_mm": 99}, "Margin"),
         ({"rotations": [45]}, "rotation"),
         ({"rotations": [0, 0]}, "rotation"),
+        ({"name": 5}, "file name"),
+        ({"name": ["x"]}, "file name"),
     ],
 )
 def test_bad_pdf_options_rejected(tmp_path, options, error):
     with pytest.raises(ToolError, match=error):
         run_tool(images_to_pdf, tmp_path, [("a.png", image_bytes())], options)
+
+
+def halves(size=(200, 100)):
+    """PNG, left half red and right half blue."""
+    im = Image.new("RGB", size, "blue")
+    im.paste("red", (0, 0, size[0] // 2, size[1]))
+    buf = io.BytesIO()
+    im.save(buf, "PNG")
+    return buf.getvalue()
+
+
+def pdf_images(data):
+    return [pikepdf.PdfImage(next(iter(p.get_images().values()))).as_pil_image() for p in pikepdf.open(io.BytesIO(data)).pages]
+
+
+def test_pdf_crop_keeps_the_chosen_part(tmp_path):
+    files = [("a.png", halves()), ("b.png", halves())]
+    out, _, _ = run_tool(images_to_pdf, tmp_path, files, {"page": "image", "crops": [[0.5, 0, 1, 1], None]})
+    cropped, whole = pdf_images(out[0])
+    assert cropped.size == (100, 100) and whole.size == (200, 100)
+    assert cropped.getpixel((50, 50)) == (0, 0, 255)  # the right (blue) half
+
+
+def test_pdf_rotation_applies_before_crop(tmp_path):
+    # Turned clockwise, the red left half is on top; cropping the top half of the turned image keeps only red.
+    out, _, _ = run_tool(images_to_pdf, tmp_path, [("a.png", halves())], {"page": "image", "rotations": [90], "crops": [[0, 0, 1, 0.5]]})
+    (page,) = pdf_images(out[0])
+    assert page.size == (100, 100)
+    assert page.getpixel((5, 5)) == page.getpixel((95, 95)) == (255, 0, 0)
+
+
+@pytest.mark.parametrize(
+    "crops",
+    [
+        "0,0,1,1",
+        [[0, 0, 1, 1], None],  # one more than there are images
+        [[0, 0, 1]],
+        [[0, 0, 1, 1, 1]],
+        [[0.5, 0, 0.5, 1]],  # left == right
+        [[0, 0.6, 1, 0.4]],  # top > bottom
+        [[-0.1, 0, 1, 1]],
+        [[0, 0, 1, 1.5]],
+        [[True, 0, 1, 1]],
+        [[0, 0, "1", 1]],
+        [[0, 0, float("nan"), 1]],
+        [{"left": 0}],
+    ],
+)
+def test_bad_crops_rejected(tmp_path, crops):
+    with pytest.raises(ToolError, match="Each crop"):
+        run_tool(images_to_pdf, tmp_path, [("a.png", image_bytes())], {"crops": crops})
+
+
+def test_crop_smaller_than_a_few_pixels_rejected(tmp_path):
+    with pytest.raises(ToolError, match="crop of a.png is too small"):
+        run_tool(images_to_pdf, tmp_path, [("a.png", image_bytes((40, 30)))], {"crops": [[0, 0, 0.1, 0.1]]})
+
+
+@pytest.mark.parametrize(
+    "name, expected",
+    [
+        ("holiday", "holiday.pdf"),
+        ("holiday.PDF", "holiday.pdf"),
+        ("../../x", "x.pdf"),
+        ("a/b", "ab.pdf"),
+        ("a\\b", "ab.pdf"),
+        ('new\nline "quoted"', "newline quoted.pdf"),
+        ("x" * 300, "x" * 100 + ".pdf"),
+        ("", "images.pdf"),
+        ("   ", "images.pdf"),
+        ("...", "images.pdf"),
+        (".hidden", "hidden.pdf"),
+        ("résumé", "résumé.pdf"),
+        ("\u202eevil", "evil.pdf"),  # a bidi override is not printable
+    ],
+)
+def test_pdf_output_name_sanitised(tmp_path, name, expected):
+    _, reported, _ = run_tool(images_to_pdf, tmp_path, [("a.png", image_bytes())], {"name": name})
+    assert reported[0]["name"] == expected
+    assert sorted(p.name for p in (tmp_path / "job" / "out").iterdir()) == ["0"]  # the name never reaches the disk
 
 
 def test_bad_image_in_pdf_batch_reports_nothing(tmp_path):

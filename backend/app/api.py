@@ -31,7 +31,8 @@ CHUNK = 1024 * 1024
 
 
 def security_headers(app):
-    """nosniff + CSP on every response; no-store on everything under /api; small request bodies except uploads."""
+    """nosniff + CSP on every response; no-store under /api, long caching for hashed /assets/, no-cache for the
+    rest; small request bodies except uploads."""
 
     async def wrapped(scope, receive, send):
         seen = 0
@@ -50,8 +51,15 @@ def security_headers(app):
                 headers = MutableHeaders(scope=message)
                 headers["X-Content-Type-Options"] = "nosniff"
                 headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' blob:; frame-ancestors 'none'"
-                if scope["path"].startswith("/api"):
+                path = scope["path"]
+                if path.startswith("/api"):
                     headers["Cache-Control"] = "no-store"
+                elif path.startswith("/assets/") and message["status"] == 200:
+                    # Vite puts a content hash in these names: a changed file gets a new name.
+                    headers["Cache-Control"] = "public, max-age=31536000, immutable"
+                else:
+                    # index.html and the icons: revalidate, so a release never leaves a page pointing at old assets.
+                    headers["Cache-Control"] = "no-cache"
             await send(message)
 
         if scope["type"] != "http":

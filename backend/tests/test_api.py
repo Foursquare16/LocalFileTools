@@ -1,4 +1,5 @@
 import io
+import json
 import os
 import re
 import threading
@@ -9,6 +10,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 from argon2.exceptions import VerificationError
 from conftest import ORIGIN, PASSWORD, USERNAME, image_bytes, job_dirs, run_next_job, upload
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from fastapi.testclient import TestClient
 from PIL import Image
 
@@ -271,6 +274,19 @@ def test_bad_image_fails_job_with_message(logged_in):
     assert status["status"] == "failed" and "notes.jpg is not a supported image" in status["message"]
 
 
+def test_hostile_pdf_name_cannot_inject_a_header(logged_in):
+    options = json.dumps({"page": "image", "name": 'résumé "x"\r\nSet-Cookie: a=b/../../y'})
+    job_id = upload(logged_in, [("a.png", image_bytes())], tool="images_to_pdf", options=options).json()["id"]
+    run_next_job()
+    assert logged_in.get(f"/api/jobs/{job_id}").json()["outputs"][0]["name"] == "résumé xSet-Cookie a=b....y.pdf"
+    r = logged_in.get(f"/api/jobs/{job_id}/files/0")
+    assert r.status_code == 200 and "set-cookie" not in r.headers
+    assert r.headers["content-disposition"] == (
+        "attachment; filename=\"r_sum_ xSet-Cookie a_b....y.pdf\"; "
+        "filename*=UTF-8''r%C3%A9sum%C3%A9%20xSet-Cookie%20a%3Db....y.pdf"
+    )
+
+
 def _completed_job(logged_in):
     job_id = upload(logged_in, [("a.png", image_bytes())], options='{"format": "png"}').json()["id"]
     run_next_job()
@@ -327,3 +343,18 @@ def test_untrusted_job_row_is_sanitised(logged_in):
 def test_oversize_login_body_rejected(client):
     r = client.post("/api/login", json={"username": USERNAME, "password": "x" * 100_000})
     assert r.status_code == 413
+
+
+def test_cache_headers(client, tmp_path):
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "assets" / "index-abc123.js").write_text("export {}")
+    (tmp_path / "index.html").write_text("<!doctype html>")
+    (tmp_path / "manifest.webmanifest").write_text("{}")
+    site = FastAPI()
+    site.mount("/", StaticFiles(directory=tmp_path, html=True))
+    static = TestClient(api.security_headers(site))
+    assert static.get("/assets/index-abc123.js").headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert static.get("/assets/gone.js").headers["cache-control"] == "no-cache"  # a 404 must not stick for a year
+    assert static.get("/").headers["cache-control"] == "no-cache"
+    assert static.get("/manifest.webmanifest").headers["cache-control"] == "no-cache"
+    assert client.get("/api/session").headers["cache-control"] == "no-store"

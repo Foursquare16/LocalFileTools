@@ -84,7 +84,9 @@ Each tool is a module in `backend/app/tools/` with a `run()` function; the contr
 - **image** — opens by content with only the JPEG, PNG, WebP, HEIF and AVIF decoders enabled; checks the pixel
   count before decoding; applies EXIF orientation; drops metadata; optional Lanczos resize; flattens transparency
   onto white for JPEG. Target size: binary search on quality, at most 7 encodes.
-- **images_to_pdf** — the same loading and checks, plus the chosen rotation; transparency always flattened onto
+- **images_to_pdf** — the same loading and checks, plus the chosen rotation and then the chosen crop (fractions of
+  the turned image, checked strictly, at least 8 × 8 pixels); the output name is sanitised here (no path parts,
+  control characters, quotes or leading dots; at most 100 characters); transparency always flattened onto
   white. PNG inputs stay PNG inside the PDF, everything else becomes JPEG at quality 90. img2pdf builds the PDF.
 - **pdf_compress** — inspects the PDF with pikepdf and rejects encrypted, signed, fillable-form, unreadable or
   too-long files. Attempt 1 is a pikepdf structural save; then Ghostscript `pdfwrite -dSAFER` with the `/printer`,
