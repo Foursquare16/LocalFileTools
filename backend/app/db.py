@@ -1,30 +1,14 @@
-"""The two SQLite files: state.sqlite (web only) and jobs.sqlite (web + worker), both in WAL mode."""
+"""jobs.sqlite (web + worker), in WAL mode."""
 
 import sqlite3
 from contextlib import contextmanager
 
 from . import config
 
-STATE_SCHEMA = """
-CREATE TABLE IF NOT EXISTS owner (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    username TEXT NOT NULL,
-    password_hash TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS sessions (
-    token_hash TEXT PRIMARY KEY,  -- sha256 of the cookie token; the token itself is never stored
-    expires REAL NOT NULL
-);
-CREATE TABLE IF NOT EXISTS invites (
-    token_hash TEXT PRIMARY KEY,  -- sha256 of a guest link's token, which doubles as that guest's cookie
-    name TEXT NOT NULL,
-    expires REAL NOT NULL
-);
-"""
-
 JOBS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
     id TEXT PRIMARY KEY,                -- UUID; files live in <JOBS_DIR>/<id>/in/<n> and out/<n>
+    session TEXT NOT NULL,              -- sha256 of the creating browser's cookie token; the token is never stored
     tool TEXT NOT NULL,
     options TEXT NOT NULL,              -- JSON object
     status TEXT NOT NULL,               -- queued | processing | completed | failed | cancelled
@@ -39,22 +23,25 @@ CREATE INDEX IF NOT EXISTS jobs_status ON jobs (status, created);
 """
 
 
+def _has_session(conn) -> bool:
+    return any(col["name"] == "session" for col in conn.execute("PRAGMA table_info(jobs)"))
+
+
 @contextmanager
-def _connect(path, schema):
+def jobs():
     # Autocommit: every statement we run is atomic on its own.
-    conn = sqlite3.connect(path, timeout=10, isolation_level=None)
+    conn = sqlite3.connect(config.JOBS_DIR / "jobs.sqlite", timeout=10, isolation_level=None)
     try:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
-        conn.executescript(schema)
+        conn.executescript(JOBS_SCHEMA)
+        if not _has_session(conn):
+            # A 1.1.0 table: its jobs belong to no browser, so drop them; cleanup() sweeps their folders as orphans.
+            conn.execute("BEGIN IMMEDIATE")
+            if not _has_session(conn):  # web and worker may both get here; the second finds it done
+                conn.execute("DROP TABLE IF EXISTS jobs")
+            conn.execute("COMMIT")
+            conn.executescript(JOBS_SCHEMA)
         yield conn
     finally:
         conn.close()
-
-
-def state():
-    return _connect(config.STATE_DIR / "state.sqlite", STATE_SCHEMA)
-
-
-def jobs():
-    return _connect(config.JOBS_DIR / "jobs.sqlite", JOBS_SCHEMA)

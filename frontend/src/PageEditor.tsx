@@ -199,7 +199,7 @@ export function PageEditor({ ws }: { ws: Workspace }) {
         Keyboard: select a page, then ← → to move it, R to rotate, Delete to remove.
       </p>
       <p className="muted small">
-        JPEG, PNG, WebP, HEIC or AVIF · up to {MAX_FILES} images, 50 MB in total.
+        JPEG, PNG, WebP or AVIF · up to {MAX_FILES} images, 50 MB in total.
       </p>
 
       {/* Phone: the selected page's controls and the main button stay in reach at the bottom of the screen. */}

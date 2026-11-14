@@ -9,6 +9,7 @@ export type Job = {
   message: string | null;
   inputs: FileInfo[];
   outputs: FileInfo[];
+  position: number | null; // 1-based place in the queue while queued
 };
 
 export class HttpError extends Error {
@@ -16,6 +17,9 @@ export class HttpError extends Error {
     super(message);
   }
 }
+
+/** The service is closed: every API call answers 503 "closed". A full queue is also a 503, with a sentence. */
+export const isClosed = (err: unknown) => err instanceof HttpError && err.status === 503 && err.message === "closed";
 
 async function errorFrom(status: number, body: string): Promise<HttpError> {
   try {

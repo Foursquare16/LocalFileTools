@@ -9,16 +9,13 @@ import os
 import warnings
 from pathlib import PurePath
 
-import pillow_heif
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from .. import config, jobs
 from . import ToolError
 
-pillow_heif.register_heif_opener()  # HEIC; Pillow ≥ 11.3 reads AVIF itself
-
 # Only these decoders ever see an upload (the JPEG one also opens multi-picture "MPO" files from phones).
-FORMATS = ["JPEG", "PNG", "WEBP", "HEIF", "AVIF"]
+FORMATS = ["JPEG", "PNG", "WEBP", "AVIF"]
 OUTPUTS = {"jpeg": ("JPEG", ".jpg", "image/jpeg"), "png": ("PNG", ".png", "image/png"), "webp": ("WEBP", ".webp", "image/webp")}
 MAX_SIDE = 20_000
 TARGET_ENCODES = 7
@@ -47,7 +44,7 @@ def load(path, name: str, flatten: bool, rotate: int = 0) -> tuple[Image.Image, 
             else:
                 im = im.convert("RGB")
     except UnidentifiedImageError:
-        raise ToolError(f"{name} is not a supported image (JPEG, PNG, WebP, HEIC or AVIF).")
+        raise ToolError(f"{name} is not a supported image (JPEG, PNG, WebP or AVIF).")
     except BOMB:
         raise ToolError(too_large)
     except (OSError, ValueError, EOFError, SyntaxError):
@@ -124,7 +121,7 @@ def run(job_dir, inputs, options, report):
         tmp = out_dir / f"{n}.tmp"
         tmp.write_bytes(data)
         os.replace(tmp, out_dir / str(n))
-        if jobs.disk_usage() > config.DISK_BUDGET_BYTES:  # e.g. many small HEIC files turned into large PNGs
+        if jobs.disk_usage() > config.DISK_BUDGET_BYTES:  # e.g. many small AVIF files turned into large PNGs
             raise ToolError("The server's temporary storage is full. Try fewer images or a smaller output format.")
         outputs.append({"name": (PurePath(item["name"]).stem or "image") + ext, "size": len(data), "type": ctype})
     report(outputs=outputs)  # once, at the end: a partial batch must not look like a result

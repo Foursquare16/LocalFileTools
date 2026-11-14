@@ -5,5 +5,6 @@ import react from "@vitejs/plugin-react";
 // Host header the backend's Origin check compares against. See CONTRIBUTING.md for the setup that works.
 export default defineConfig({
   plugins: [react()],
-  server: { proxy: { "/api": "http://127.0.0.1:8080" } },
+  // fs.allow: the licences page imports NOTICE from the repo root, outside this folder.
+  server: { fs: { allow: [".."] }, proxy: { "/api": "http://127.0.0.1:8080" } },
 });

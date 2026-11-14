@@ -4,7 +4,7 @@ import sys
 
 import pikepdf
 import pytest
-from conftest import image_bytes, logged_in, run_next_job, upload  # noqa: F401
+from conftest import image_bytes, client, run_next_job, upload  # noqa: F401
 from PIL import Image
 
 from app import config, db, jobs, worker
@@ -127,10 +127,15 @@ def test_damaged_image_rejected(tmp_path):
         run_tool(image, tmp_path, [("x.jpg", image_bytes(fmt="JPEG")[:200])], {"format": "png"})
 
 
-@pytest.mark.parametrize("fmt", ["HEIF", "AVIF"])
-def test_heic_and_avif_inputs_accepted(tmp_path, fmt):
-    out, reported, _ = run_tool(image, tmp_path, [(f"phone.{fmt.lower()}", image_bytes((64, 48), fmt))], {"format": "jpeg"})
-    assert opened(out[0]).size == (64, 48) and reported[0]["name"] == f"phone.jpg"
+def test_avif_input_accepted(tmp_path):
+    out, reported, _ = run_tool(image, tmp_path, [("phone.avif", image_bytes((64, 48), "AVIF"))], {"format": "jpeg"})
+    assert opened(out[0]).size == (64, 48) and reported[0]["name"] == "phone.jpg"
+
+
+def test_heic_input_rejected(tmp_path):
+    heic = b"\x00\x00\x00\x18ftypheic\x00\x00\x00\x00mif1heic" + bytes(200)
+    with pytest.raises(ToolError, match="x.heic is not a supported image"):
+        run_tool(image, tmp_path, [("x.heic", heic)], {"format": "png"})
 
 
 @pytest.mark.parametrize(
@@ -295,16 +300,16 @@ worker.child(sys.argv[1])
 """
 
 
-def test_timeout_mid_batch_is_not_a_partial_result(logged_in, tmp_path, monkeypatch):  # noqa: F811
+def test_timeout_mid_batch_is_not_a_partial_result(client, tmp_path, monkeypatch):  # noqa: F811
     script = tmp_path / "hang_child.py"
     script.write_text(HANG_ON_SECOND)
     monkeypatch.setattr(worker, "CHILD", [sys.executable, str(script)])
     monkeypatch.setattr(config, "JOB_TIMEOUT_SECONDS", 2)
     files = [(f"{n}.png", image_bytes()) for n in range(3)]
-    job_id = upload(logged_in, files, options=json.dumps({"format": "jpeg"})).json()["id"]
+    job_id = upload(client, files, options=json.dumps({"format": "jpeg"})).json()["id"]
     run_next_job()
     assert (config.JOBS_DIR / job_id / "out" / "0").exists()  # the first image was done...
     with db.jobs() as c:
         row = jobs.get(c, job_id)
     assert row["status"] == "failed" and "Time limit" in row["message"]  # ...yet nothing was returned
-    assert logged_in.get(f"/api/jobs/{job_id}/files/0").status_code == 404
+    assert client.get(f"/api/jobs/{job_id}/files/0").status_code == 404

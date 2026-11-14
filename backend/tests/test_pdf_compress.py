@@ -5,7 +5,7 @@ import subprocess
 import img2pdf
 import pikepdf
 import pytest
-from conftest import logged_in, run_next_job, upload  # noqa: F401
+from conftest import client, run_next_job, upload  # noqa: F401
 from PIL import Image
 
 from app import config, db, jobs
@@ -172,7 +172,7 @@ def test_bad_options_rejected(tmp_path, options):
         compress(tmp_path, text_pdf(), options)
 
 
-def test_timeout_mid_ladder_completes_with_best_so_far(logged_in, tmp_path, monkeypatch):
+def test_timeout_mid_ladder_completes_with_best_so_far(client, tmp_path, monkeypatch):
     """Ghostscript hangs after the structural save: the timeout returns that save as the completed result."""
     fake = tmp_path / "bin" / "gs"
     fake.parent.mkdir()
@@ -181,11 +181,11 @@ def test_timeout_mid_ladder_completes_with_best_so_far(logged_in, tmp_path, monk
     monkeypatch.setenv("PATH", f"{fake.parent}:/usr/bin:/bin")
     monkeypatch.setattr(config, "JOB_TIMEOUT_SECONDS", 3)
     src = text_pdf(pages=5, compress_streams=False)
-    job_id = upload(logged_in, [("doc.pdf", src)], tool="pdf_compress", options='{"strength": "high"}').json()["id"]
+    job_id = upload(client, [("doc.pdf", src)], tool="pdf_compress", options='{"strength": "high"}').json()["id"]
     run_next_job()
     with db.jobs() as c:
         row = jobs.get(c, job_id)
     assert row["status"] == "completed" and "best result so far" in row["message"]
-    out = logged_in.get(f"/api/jobs/{job_id}/files/0").content
+    out = client.get(f"/api/jobs/{job_id}/files/0").content
     assert len(out) < len(src) and len(pikepdf.open(io.BytesIO(out)).pages) == 5
     assert subprocess.run(["pgrep", "-f", "sleep 60"], capture_output=True).returncode == 1  # gs stand-in killed

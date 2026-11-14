@@ -1,4 +1,4 @@
-import { DragEvent, ReactNode, useState } from "react";
+import { DragEvent, ReactNode, useRef, useState } from "react";
 import { formatSize, Job } from "./api";
 
 export type ToolName = "image" | "images_to_pdf" | "pdf_compress";
@@ -9,7 +9,7 @@ export const TOOLS: { name: ToolName; title: string; text: string; short: string
     title: "Image Tool",
     text: "Convert, resize and compress images",
     short: "Convert, resize, compress",
-    meta: "JPEG · PNG · WebP · HEIC · AVIF",
+    meta: "JPEG · PNG · WebP · AVIF",
     icon: "image",
   },
   {
@@ -30,12 +30,23 @@ export const TOOLS: { name: ToolName; title: string; text: string; short: string
   },
 ];
 
-export const toolInAddress = () => TOOLS.find((t) => t.name === location.hash.slice(1))?.name ?? null;
+export const SOURCE_URL = "https://github.com/Foursquare16/LocalFileTools";
+
+export type Page = ToolName | "privacy" | "licences" | "notfound" | null;
+
+/** The screen the address asks for: a tool, a text page, "notfound", or null for the machine. */
+export function pageInAddress(): Page {
+  const hash = location.hash.slice(1);
+  if (location.pathname !== "/") return "notfound";
+  if (!hash) return null;
+  if (hash === "privacy" || hash === "licences") return hash;
+  return TOOLS.find((t) => t.name === hash)?.name ?? "notfound";
+}
 
 // shortcut: mirrors the server defaults (LFT_MAX_FILES, LFT_MAX_UPLOAD_MB); the server still enforces its own values.
 export const MAX_FILES = 30;
 export const MAX_BYTES = 50 * 1024 * 1024 - 64 * 1024; // leaves room for the multipart overhead in the request body
-export const ACCEPT_IMAGES = "image/jpeg,image/png,image/webp,image/heic,image/heif,image/avif,.heic,.heif,.avif";
+export const ACCEPT_IMAGES = "image/jpeg,image/png,image/webp,image/avif,.avif";
 export const ACCEPT_PDF = "application/pdf,.pdf";
 export const DONE = ["completed", "failed", "cancelled"];
 
@@ -44,8 +55,8 @@ export type Crop = [number, number, number, number];
 export type Item = { id: number; file: File; url: string; rotation: number; crop: Crop | null };
 
 export const isPdf = (f: File) => f.type === "application/pdf" || /\.pdf$/i.test(f.name);
-// The type is often empty for HEIC/AVIF, so the extension counts too. The worker checks the real content.
-export const isImage = (f: File) => /^image\/(jpeg|png|webp|heic|heif|avif)$/.test(f.type) || /\.(jpe?g|png|webp|hei[cf]|avif)$/i.test(f.name);
+// The type is often empty for AVIF, so the extension counts too. The worker checks the real content.
+export const isImage = (f: File) => /^image\/(jpeg|png|webp|avif)$/.test(f.type) || /\.(jpe?g|png|webp|avif)$/i.test(f.name);
 
 export function fits(tool: ToolName, items: Item[]) {
   if (!items.length) return false;
@@ -111,6 +122,7 @@ export type Workspace = {
   progress: number | null;
   failure: { message: string; stage: string | null } | null;
   error: string;
+  deleted: boolean;
   busy: boolean;
   set: (patch: Partial<Settings>) => void;
   add: (files: FileList | null, replace?: boolean) => void;
@@ -122,11 +134,13 @@ export type Workspace = {
   clear: () => void;
   start: (tool: ToolName) => void;
   discard: (fresh: boolean) => void;
+  deleteAll: () => void;
 };
 
 export function statusText({ progress, job }: { progress: number | null; job: Job | null }) {
   if (progress !== null) return "Uploading…";
-  return job?.status === "queued" ? "Waiting in the queue…" : (job?.stage ?? "Processing…");
+  if (job?.status !== "queued") return job?.stage ?? "Processing…";
+  return job.position ? `Waiting in the queue (position ${job.position})` : "Waiting in the queue…";
 }
 
 /** "87% smaller", "12% larger" or "about the same size". */
@@ -143,6 +157,37 @@ export function Saved({ before, after }: { before: number; after: number }) {
 }
 
 export const sizeChange = (before: number, after: number) => `${formatSize(before)} → ${formatSize(after)}`;
+
+/** A button that, after a confirmation dialog, deletes every job and file of this browser. */
+export function DeleteAll({ ws, className }: { ws: Workspace; className: string }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  return (
+    <>
+      <button type="button" className={className} disabled={ws.progress !== null} onClick={() => dialog.current?.showModal()}>
+        Delete my files now
+      </button>
+      <dialog ref={dialog} className="crop-dialog confirm-dialog" aria-labelledby="delete-title">
+        <h2 id="delete-title">Delete your files now?</h2>
+        <p className="muted">Every file and result from this browser is removed from the server. This cannot be undone.</p>
+        <span className="crop-actions">
+          <button type="button" className="btn secondary" onClick={() => dialog.current?.close()}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn primary"
+            onClick={() => {
+              dialog.current?.close();
+              ws.deleteAll();
+            }}
+          >
+            Delete my files
+          </button>
+        </span>
+      </dialog>
+    </>
+  );
+}
 
 /** A label that opens the file picker on click or Enter/Space (via its hidden input) and takes dropped files. */
 export function FilePick(props: {

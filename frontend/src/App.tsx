@@ -1,54 +1,37 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
-import { api, formatSize, HttpError, Job, uploadJob } from "./api";
+import { useEffect, useRef, useState } from "react";
+import { api, formatSize, HttpError, isClosed, Job, uploadJob } from "./api";
+import { version } from "../package.json";
 import { Machine } from "./Machine";
+import { Closed, Licences, NotFound, Privacy } from "./Pages";
 import {
   DEFAULT_SETTINGS,
   DONE,
   fits,
-  Icon,
   Crop,
   Item,
   Logo,
   MAX_BYTES,
   MAX_FILES,
   options,
+  pageInAddress,
   plural,
   Settings,
+  SOURCE_URL,
   ToolName,
-  toolInAddress,
   totalSize,
   Workspace as WorkspaceState,
 } from "./shared";
 import { ToolScreen } from "./ToolScreen";
 
-const SOURCE_URL = "https://github.com/Foursquare16/LocalFileTools";
-
 export default function App() {
-  const [authed, setAuthed] = useState<boolean | null>(null);
-  const [notice, setNotice] = useState("");
+  const [open, setOpen] = useState<boolean | null>(null);
 
   useEffect(() => {
-    // A guest link carries its token after the #, which browsers never send to the server or to other sites.
-    const invite = new URLSearchParams(location.hash.slice(1)).get("invite");
-    if (invite) history.replaceState(null, "", location.pathname);
-    api<{ authenticated: boolean }>("/session")
-      .then(async (s) => {
-        if (s.authenticated || !invite) return s.authenticated;
-        const body = JSON.stringify({ token: invite });
-        await api("/invite", { method: "POST", headers: { "Content-Type": "application/json" }, body }).catch((err) => {
-          setNotice((err as Error).message);
-          throw err;
-        });
-        return true;
-      })
-      .then(setAuthed)
-      .catch(() => setAuthed(false));
+    api<{ open: boolean }>("/session").then(
+      (s) => setOpen(s.open),
+      (err) => setOpen(!isClosed(err)),
+    );
   }, []);
-
-  async function logout() {
-    await api("/logout", { method: "POST" }).catch(() => {});
-    setAuthed(false);
-  }
 
   return (
     <>
@@ -58,98 +41,22 @@ export default function App() {
         <i />
         <i />
       </div>
-      {authed && (
-        <header className="top">
-          <span className="brand">
-            <Logo />
-            LocalFileTools
-          </span>
-          <button className="btn ghost" onClick={logout}>
-            Log Out
-          </button>
-        </header>
-      )}
-      <main className={authed ? "" : "center"}>
-        {authed === null ? null : authed ? (
-          <Workspace onLoggedOut={() => setAuthed(false)} />
-        ) : (
-          <Login notice={notice} onLoggedIn={() => setAuthed(true)} />
-        )}
-      </main>
+      <header className="top">
+        <span className="brand">
+          <Logo />
+          LocalFileTools
+        </span>
+      </header>
+      <main>{open === null ? null : open ? <Workspace onClosed={() => setOpen(false)} /> : <Closed />}</main>
       <footer>
-        Free Software (AGPL-3.0) · <a href={SOURCE_URL}>Source Code</a>
+        <span>LocalFileTools {version}</span>
+        <a href={SOURCE_URL} rel="noreferrer">
+          Source
+        </a>
+        <a href="/#privacy">Privacy and terms</a>
+        <a href="/#licences">Licences</a>
       </footer>
     </>
-  );
-}
-
-function Login({ notice, onLoggedIn }: { notice: string; onLoggedIn: () => void }) {
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError("");
-    try {
-      await api("/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
-      });
-      onLoggedIn();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <form className="login card" onSubmit={submit}>
-      <Logo />
-      <div>
-        <h1>Log In to LocalFileTools</h1>
-        <p className="muted">Convert and compress files on your own server.</p>
-      </div>
-      {notice && (
-        <p className="alert" role="alert">
-          <Icon name="warning" />
-          <span>
-            {notice}
-            {notice.includes("guest link") && " Ask the owner for a new one, or log in below."}
-          </span>
-        </p>
-      )}
-      <label className="field">
-        <span>Username</span>
-        <span className="input">
-          <input autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} required />
-        </span>
-      </label>
-      <label className="field">
-        <span>Password</span>
-        <span className="input">
-          <input
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
-        </span>
-      </label>
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
-      <button className="btn primary" disabled={busy}>
-        {busy ? "Logging In…" : "Log In"}
-      </button>
-    </form>
   );
 }
 
@@ -159,8 +66,8 @@ let nextId = 0;
  * Owns the files in the hopper, the settings and the last job. The machine (no hash) and the tool screens (#image,
  * #images_to_pdf, #pdf_compress) are views of this one state, so the browser's back key moves between them freely.
  */
-function Workspace({ onLoggedOut }: { onLoggedOut: () => void }) {
-  const [view, setView] = useState(toolInAddress);
+function Workspace({ onClosed }: { onClosed: () => void }) {
+  const [page, setPage] = useState(pageInAddress);
   const [items, setItems] = useState<Item[]>([]);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [job, setJob] = useState<Job | null>(null);
@@ -168,11 +75,12 @@ function Workspace({ onLoggedOut }: { onLoggedOut: () => void }) {
   const [progress, setProgress] = useState<number | null>(null);
   const [failure, setFailure] = useState<WorkspaceState["failure"]>(null);
   const [error, setError] = useState("");
+  const [deleted, setDeleted] = useState(false); // "Your files have been deleted." stays on the home screen until the next add or job
   // The one polite live region says the latest thing that happened: a job step, a failure, a page moved.
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
-    const sync = () => setView(toolInAddress());
+    const sync = () => setPage(pageInAddress());
     addEventListener("hashchange", sync);
     return () => removeEventListener("hashchange", sync);
   }, []);
@@ -182,15 +90,15 @@ function Workspace({ onLoggedOut }: { onLoggedOut: () => void }) {
   useEffect(() => {
     if (firstView.current) firstView.current = false;
     else document.querySelector<HTMLElement>("main h1")?.focus();
-  }, [view]);
+  }, [page]);
 
-  // Revoke thumbnail URLs when the workspace goes away (logout).
+  // Revoke thumbnail URLs when the workspace goes away (the service closed).
   const itemsRef = useRef(items);
   itemsRef.current = items;
   useEffect(() => () => itemsRef.current.forEach((i) => URL.revokeObjectURL(i.url)), []);
 
   function fail(err: unknown) {
-    if (err instanceof HttpError && err.status === 401) onLoggedOut();
+    if (isClosed(err)) onClosed();
     else setError((err as Error).message);
   }
 
@@ -205,6 +113,7 @@ function Workspace({ onLoggedOut }: { onLoggedOut: () => void }) {
     setError("");
     const added = [...(files ?? [])].map((file) => ({ id: nextId++, file, url: URL.createObjectURL(file), rotation: 0, crop: null }));
     if (!added.length) return;
+    setDeleted(false);
     if (replace) {
       // The compressor takes one PDF: a new pick replaces it, and of several dropped only the last is kept.
       clear();
@@ -240,12 +149,13 @@ function Workspace({ onLoggedOut }: { onLoggedOut: () => void }) {
 
   function start(tool: ToolName) {
     setError("");
+    setDeleted(false);
     // Checked here too: a server rejection mid-upload can reach the browser through Cloudflare as a bare network error.
     const total = totalSize(items.map((i) => i.file));
     if (!items.length) return setError(tool === "pdf_compress" ? "Add a PDF." : "Add at least one image.");
     if (!fits(tool, items))
       return setError(
-        tool === "pdf_compress" ? "This tool takes one PDF." : "This tool takes images only: JPEG, PNG, WebP, HEIC or AVIF.",
+        tool === "pdf_compress" ? "This tool takes one PDF." : "This tool takes images only: JPEG, PNG, WebP or AVIF.",
       );
     if (items.length > MAX_FILES) return setError(`Too many files: at most ${MAX_FILES} per job.`);
     if (total > MAX_BYTES) return setError(`Too large: ${formatSize(total)} selected, at most 50 MB per job.`);
@@ -257,14 +167,14 @@ function Workspace({ onLoggedOut }: { onLoggedOut: () => void }) {
     if (location.hash) location.hash = ""; // watch it go through the machine
     uploadJob(tool, options(tool, settings, items), items.map((i) => i.file), setProgress)
       .then((id) => {
-        // The tray holds one job, so the previous result goes now rather than in an hour, but only once the new
+        // The tray holds one job, so the previous result goes now rather than after 15 minutes, but only once the new
         // job exists: if the upload fails, the previous result stays downloadable.
         if (previous) api(`/jobs/${previous.id}`, { method: "DELETE" }).catch(() => {});
         return api<Job>(`/jobs/${id}`);
       })
       .then(setJob)
       .catch((err) => {
-        if (err instanceof HttpError && err.status === 401) onLoggedOut();
+        if (isClosed(err)) onClosed();
         else {
           setFailure({ message: (err as Error).message, stage: "Uploading" });
           setNotice(`Failed: ${(err as Error).message}`);
@@ -323,6 +233,22 @@ function Workspace({ onLoggedOut }: { onLoggedOut: () => void }) {
     }
   }
 
+  /** Delete every job and file of this browser, forget the current job and go home. */
+  async function deleteAll() {
+    setError("");
+    try {
+      await api("/jobs", { method: "DELETE" });
+    } catch (err) {
+      return fail(err);
+    }
+    setJob(null);
+    setJobTool(null);
+    setFailure(null);
+    if (location.hash) location.hash = "";
+    setDeleted(true);
+    setNotice("Your files have been deleted.");
+  }
+
   const busy = progress !== null || (!!job && !DONE.includes(job.status));
   const ws: WorkspaceState = {
     items,
@@ -332,6 +258,7 @@ function Workspace({ onLoggedOut }: { onLoggedOut: () => void }) {
     progress,
     failure,
     error,
+    deleted,
     busy,
     set: (patch) => setSettings((s) => ({ ...s, ...patch })),
     add,
@@ -343,6 +270,7 @@ function Workspace({ onLoggedOut }: { onLoggedOut: () => void }) {
     clear,
     start,
     discard,
+    deleteAll,
   };
 
   return (
@@ -350,7 +278,17 @@ function Workspace({ onLoggedOut }: { onLoggedOut: () => void }) {
       <p className="sr-only" aria-live="polite">
         {notice}
       </p>
-      {view ? <ToolScreen key={view} tool={view} ws={ws} /> : <Machine ws={ws} />}
+      {page === "privacy" ? (
+        <Privacy />
+      ) : page === "licences" ? (
+        <Licences />
+      ) : page === "notfound" ? (
+        <NotFound />
+      ) : page ? (
+        <ToolScreen key={page} tool={page} ws={ws} />
+      ) : (
+        <Machine ws={ws} />
+      )}
     </>
   );
 }

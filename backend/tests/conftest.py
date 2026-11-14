@@ -5,10 +5,9 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from app import api, auth, config, db, jobs, worker
+from app import api, config, db, jobs, worker
 
 BACKEND = Path(__file__).resolve().parent.parent
-USERNAME, PASSWORD = "owner", "correct horse battery"
 ORIGIN = "https://testserver"
 
 
@@ -21,22 +20,17 @@ def dirs(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "JOBS_DIR", tmp_path / "jobs")
     monkeypatch.setenv("LFT_JOBS_DIR", str(tmp_path / "jobs"))
     monkeypatch.setenv("PYTHONPATH", str(BACKEND))
-    auth._failures.clear()
+
+
+def new_client(**kwargs):
+    # https so the Secure cookie is sent back; Origin + X-LFT as the frontend sends them.
+    return TestClient(api.app, base_url=ORIGIN, headers={"Origin": ORIGIN, "X-LFT": "1"}, **kwargs)
 
 
 @pytest.fixture
 def client():
-    with db.state() as c:
-        c.execute("INSERT INTO owner VALUES (1, ?, ?)", (USERNAME, auth.hash_password(PASSWORD)))
-    # https so the Secure cookie is sent back; Origin + X-LFT as the frontend sends them.
-    return TestClient(api.app, base_url=ORIGIN, headers={"Origin": ORIGIN, "X-LFT": "1"})
-
-
-@pytest.fixture
-def logged_in(client):
-    r = client.post("/api/login", json={"username": USERNAME, "password": PASSWORD})
-    assert r.status_code == 204, r.text
-    return client
+    """One browser: it gets its anonymous session cookie on the first /api response."""
+    return new_client()
 
 
 def upload(client, files, tool="image", options="{}", **kwargs):

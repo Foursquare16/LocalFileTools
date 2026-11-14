@@ -2,6 +2,7 @@ import { PointerEvent, ReactNode } from "react";
 import {
   ACCEPT_IMAGES,
   ACCEPT_PDF,
+  DeleteAll,
   FilePick,
   fits,
   Icon,
@@ -32,7 +33,7 @@ function diagnose(items: Item[]): { hint: string; problem: boolean } {
   const pdfs = items.filter((i) => isPdf(i.file)).length;
   if (unsupported.length)
     return {
-      hint: `${unsupported.length === 1 ? `“${unsupported[0].file.name}” isn't` : `${unsupported.length} files aren't`} supported: use JPEG, PNG, WebP, HEIC, AVIF or PDF`,
+      hint: `${unsupported.length === 1 ? `“${unsupported[0].file.name}” isn't` : `${unsupported.length} files aren't`} supported: use JPEG, PNG, WebP, AVIF or PDF`,
       problem: true,
     };
   if (pdfs && pdfs < items.length) return { hint: "Photos and a PDF can't share a chute: remove one kind", problem: true };
@@ -258,7 +259,7 @@ export function Machine({ ws }: { ws: Workspace }) {
               <button className="link-btn" onClick={() => ws.discard(true)}>
                 Start Over
               </button>{" "}
-              · Files are deleted after about an hour
+              · Files are deleted 15 minutes after the job finishes
             </p>
           </>
         ) : (
@@ -270,6 +271,10 @@ export function Machine({ ws }: { ws: Workspace }) {
           {ws.error}
         </p>
       )}
+      <p className="center-text">
+        <DeleteAll ws={ws} className="btn ghost" />
+      </p>
+      {ws.deleted && <p className="muted small center-text">Your files have been deleted.</p>}
     </div>
   );
 }

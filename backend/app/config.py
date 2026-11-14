@@ -10,26 +10,20 @@ def _int(name: str, default: int) -> int:
 
 MB = 1024 * 1024
 
-STATE_DIR = Path(os.environ.get("LFT_STATE_DIR", "/data/state"))  # web only
+STATE_DIR = Path(os.environ.get("LFT_STATE_DIR", "/data/state"))  # web only: the "closed" flag
 JOBS_DIR = Path(os.environ.get("LFT_JOBS_DIR", "/data/jobs"))  # web + worker
 STATIC_DIR = Path(os.environ.get("LFT_STATIC_DIR", "/app/static"))  # built frontend
 
-MAX_QUEUED = _int("LFT_MAX_QUEUED", 5)
+MAX_QUEUED = _int("LFT_MAX_QUEUED", 20)
 MAX_UPLOAD_BYTES = _int("LFT_MAX_UPLOAD_MB", 50) * MB  # whole request body, per job
 MAX_FILES = _int("LFT_MAX_FILES", 30)
 MAX_IMAGE_MP = _int("LFT_MAX_IMAGE_MP", 60)  # megapixels per image
 MAX_PDF_PAGES = _int("LFT_MAX_PDF_PAGES", 100)
 JOB_TIMEOUT_SECONDS = _int("LFT_JOB_TIMEOUT_SECONDS", 300)
 DISK_BUDGET_BYTES = _int("LFT_DISK_BUDGET_MB", 2048) * MB  # jobs volume
-RETENTION_SECONDS = _int("LFT_RETENTION_SECONDS", 3600)
-CLEANUP_INTERVAL_SECONDS = _int("LFT_CLEANUP_INTERVAL_SECONDS", 300)
+RETENTION_SECONDS = _int("LFT_RETENTION_SECONDS", 900)  # after a job finishes
+CLEANUP_INTERVAL_SECONDS = _int("LFT_CLEANUP_INTERVAL_SECONDS", 60)
 
 # Optional "host:port" for plain-HTTP access on the LAN: only requests to this exact Host get a non-Secure cookie.
 LAN_HOST = os.environ.get("LFT_LAN_HOST", "")
-# Optional comma-separated addresses or networks of the proxy (cloudflared). When set, CF-Connecting-IP is believed
-# only on connections from them. Needed when anything else can reach the web port, as with LFT_LAN_HOST.
-PROXY_IPS = os.environ.get("LFT_PROXY_IPS", "")
-
-SESSION_SECONDS = 7 * 24 * 3600
-LOGIN_MAX_FAILURES = 5
-LOGIN_LOCKOUT_SECONDS = 15 * 60
+SESSION_SECONDS = 7 * 24 * 3600  # anonymous session cookie

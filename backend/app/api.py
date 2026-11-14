@@ -8,19 +8,20 @@ with an allowlisted content type.
 import json
 import os
 import re
+import secrets
 import shutil
 import stat
 import uuid
 import zipfile
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
 from python_multipart.exceptions import MultipartParseError
 from python_multipart.multipart import MultipartParser, parse_options_header
-from starlette.datastructures import MutableHeaders
+from starlette.datastructures import Headers, MutableHeaders
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import auth, config, db, jobs
 from .tools import NAMES as TOOL_NAMES
@@ -30,27 +31,36 @@ MAX_FIELD_BYTES = 64 * 1024
 CHUNK = 1024 * 1024
 
 
+def _session_cookie(scope, token: str) -> str:
+    # Browsers drop a Secure cookie over plain HTTP, so the opt-in LAN address gets one without it.
+    lan = bool(config.LAN_HOST) and Headers(scope=scope).get("host") == config.LAN_HOST
+    flags = "HttpOnly; SameSite=Strict" + ("" if lan else "; Secure")
+    return f"{auth.COOKIE}={token}; Max-Age={config.SESSION_SECONDS}; Path=/; {flags}"
+
+
 def security_headers(app):
-    """nosniff + CSP on every response; no-store under /api, long caching for hashed /assets/, no-cache for the
-    rest; small request bodies except uploads."""
+    """nosniff, CSP, HSTS and noindex on every response; no-store under /api, long caching for hashed /assets/,
+    no-cache for the rest. An /api request without a well-formed session cookie gets a fresh one, also on errors."""
 
     async def wrapped(scope, receive, send):
-        seen = 0
-
-        async def limited_receive():
-            # FastAPI buffers a JSON body before any dependency runs, so an anonymous login could post 100 MB.
-            nonlocal seen
-            message = await receive()
-            seen += len(message.get("body", b""))
-            if seen > MAX_FIELD_BYTES:
-                raise HTTPException(413, "Request too large.")
-            return message
+        if scope["type"] != "http":
+            return await app(scope, receive, send)
+        new_token = None
+        if scope["path"].startswith("/api"):
+            token = Request(scope).cookies.get(auth.COOKIE)
+            if not auth.well_formed(token):
+                token = new_token = secrets.token_urlsafe(32)
+            scope.setdefault("state", {})["session_token"] = token  # read by auth.session as request.state
 
         async def send_with_headers(message):
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
                 headers["X-Content-Type-Options"] = "nosniff"
                 headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' blob:; frame-ancestors 'none'"
+                headers["Strict-Transport-Security"] = "max-age=31536000"
+                headers["X-Robots-Tag"] = "noindex"
+                if new_token:
+                    headers.append("Set-Cookie", _session_cookie(scope, new_token))
                 path = scope["path"]
                 if path.startswith("/api"):
                     headers["Cache-Control"] = "no-store"
@@ -62,62 +72,33 @@ def security_headers(app):
                     headers["Cache-Control"] = "no-cache"
             await send(message)
 
-        if scope["type"] != "http":
-            return await app(scope, receive, send)
-        # The upload route enforces its own, larger limit.
-        await app(scope, receive if scope["path"] == "/api/jobs" else limited_receive, send_with_headers)
+        await app(scope, receive, send_with_headers)
 
     return wrapped
+
+
+class Site(StaticFiles):
+    """The built frontend. An unknown path outside /api gets index.html with a 404, so the app shows "not found"."""
+
+    async def get_response(self, path, scope):
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as e:
+            if e.status_code != 404 or scope["path"].startswith("/api"):
+                raise
+            return FileResponse(os.path.join(self.directory, "index.html"), status_code=404)
 
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 app.add_middleware(security_headers)
 public = APIRouter(prefix="/api", dependencies=[Depends(auth.check_csrf)])
-private = APIRouter(prefix="/api", dependencies=[Depends(auth.require_session), Depends(auth.check_csrf)])
-
-
-# --- auth ---
-
-
-class Credentials(BaseModel):
-    username: str
-    password: str
-
-
-def _cookie_flags(request: Request) -> dict:
-    # Browsers drop a Secure cookie over plain HTTP, so the opt-in LAN address gets one without it.
-    lan = bool(config.LAN_HOST) and request.headers.get("host") == config.LAN_HOST
-    return {"httponly": True, "secure": not lan, "samesite": "strict"}
-
-
-@public.post("/login", status_code=204)
-def login(body: Credentials, request: Request, response: Response):
-    token = auth.login(auth.client_ip(request), body.username, body.password)
-    response.set_cookie(auth.COOKIE, token, max_age=config.SESSION_SECONDS, **_cookie_flags(request))
-
-
-class Invite(BaseModel):
-    token: str
-
-
-@public.post("/invite", status_code=204)
-def redeem_invite(body: Invite, request: Request, response: Response):
-    """Turn a guest link's token into the session cookie. The cookie dies with the link."""
-    seconds = auth.invite_seconds(body.token)
-    if seconds is None:
-        raise HTTPException(401, "This guest link has expired or was cancelled.")
-    response.set_cookie(auth.COOKIE, body.token, max_age=seconds, **_cookie_flags(request))
-
-
-@public.post("/logout", status_code=204)
-def logout(request: Request, response: Response):
-    auth.logout(request.cookies.get(auth.COOKIE))
-    response.delete_cookie(auth.COOKIE, **_cookie_flags(request))
+# Everything else answers 503 while the service is closed.
+service = APIRouter(prefix="/api", dependencies=[Depends(auth.check_csrf), Depends(auth.require_open)])
 
 
 @public.get("/session")
-def session(request: Request):
-    return {"authenticated": auth.has_session(request)}
+def session():
+    return {"open": not auth.closed_flag().exists()}
 
 
 # --- uploads ---
@@ -202,8 +183,8 @@ async def _receive(request: Request, boundary: bytes, in_dir) -> tuple[dict[str,
     return fields, files
 
 
-@private.post("/jobs", status_code=201)
-async def create_job(request: Request):
+@service.post("/jobs", status_code=201)
+async def create_job(request: Request, session: str = Depends(auth.session)):
     # Not FastAPI's UploadFile: that spools the whole body to /tmp before the handler runs.
     try:
         length = int(request.headers.get("content-length", 0))
@@ -238,7 +219,7 @@ async def create_job(request: Request):
         if not files:
             raise HTTPException(400, "No files uploaded.")
         with db.jobs() as c:
-            if not jobs.create(c, job_id, tool, options, files):
+            if not jobs.create(c, job_id, session, tool, options, files):
                 raise HTTPException(503, "The queue is full. Try again when a job has finished.")
     except BaseException:
         shutil.rmtree(job_dir, ignore_errors=True)
@@ -279,17 +260,17 @@ def _job_id(value: str) -> str:
         raise HTTPException(404, "No such job.")
 
 
-def _job_row(value: str):
+def _job_row(value: str, session: str):
     job_id = _job_id(value)
     with db.jobs() as c:
-        row = jobs.get(c, job_id)
+        row = jobs.get_own(c, job_id, session)
     if row is None:
         raise HTTPException(404, "No such job.")
     return job_id, row
 
 
-def _outputs_of_completed(value: str):
-    job_id, row = _job_row(value)
+def _outputs_of_completed(value: str, session: str):
+    job_id, row = _job_row(value, session)
     outputs = _file_list(row["outputs"])
     if row["status"] != "completed" or not outputs:
         raise HTTPException(404, "No result to download.")
@@ -324,34 +305,53 @@ def _stream(f):
             yield chunk
 
 
-@private.get("/jobs/{job_id}")
-def job_status(job_id: str):
-    job_id, row = _job_row(job_id)
+@service.get("/jobs/{job_id}")
+def job_status(job_id: str, session: str = Depends(auth.session)):
+    job_id, row = _job_row(job_id, session)
+    with db.jobs() as c:
+        position = jobs.position(c, row)
     return {
         "id": job_id,
         "tool": _text(row["tool"]),
         "status": _text(row["status"]),
         "stage": _text(row["stage"]),
         "message": _text(row["message"]),
+        "position": position,
         "inputs": [{"name": f["name"], "size": f["size"]} for f in _file_list(row["inputs"])],
         "outputs": _file_list(row["outputs"]),
     }
 
 
-@private.delete("/jobs/{job_id}", status_code=204)
-def delete_job(job_id: str):
-    job_id = _job_id(job_id)
+def _delete(job_id: str, session: str) -> str | None:
     with db.jobs() as c:
-        result = jobs.delete(c, job_id)
-    if result is None:
-        raise HTTPException(404, "No such job.")
+        result = jobs.delete(c, job_id, session)
     if result == "deleted":
         shutil.rmtree(config.JOBS_DIR / job_id, ignore_errors=True)  # rmtree never follows symlinks
+    return result
 
 
-@private.get("/jobs/{job_id}/files/{n}")
-def download(job_id: str, n: int):
-    job_id, outputs = _outputs_of_completed(job_id)
+@service.delete("/jobs/{job_id}", status_code=204)
+def delete_job(job_id: str, session: str = Depends(auth.session)):
+    if _delete(_job_id(job_id), session) is None:
+        raise HTTPException(404, "No such job.")
+
+
+@service.delete("/jobs", status_code=204)
+def delete_my_jobs(session: str = Depends(auth.session)):
+    """Every job of this browser, each as the single delete does it."""
+    with db.jobs() as c:
+        ids = jobs.ids_of(c, session)
+    for value in ids:
+        try:
+            job_id = _job_id(str(value))  # the row is worker-writable: only a real UUID names a folder
+        except HTTPException:
+            continue
+        _delete(job_id, session)
+
+
+@service.get("/jobs/{job_id}/files/{n}")
+def download(job_id: str, n: int, session: str = Depends(auth.session)):
+    job_id, outputs = _outputs_of_completed(job_id, session)
     if not 0 <= n < len(outputs):
         raise HTTPException(404, "File not found.")
     f = _open_output(job_id, n)
@@ -394,9 +394,9 @@ def _zip(files, outputs):
     yield sink.take()
 
 
-@private.get("/jobs/{job_id}/zip")
-def download_zip(job_id: str):
-    job_id, outputs = _outputs_of_completed(job_id)
+@service.get("/jobs/{job_id}/zip")
+def download_zip(job_id: str, session: str = Depends(auth.session)):
+    job_id, outputs = _outputs_of_completed(job_id, session)
     files = [_open_output(job_id, n) for n in range(len(outputs))]  # 404 before streaming if any is unsafe
     return StreamingResponse(
         _zip(files, outputs), media_type="application/zip", headers={"Content-Disposition": _disposition("results.zip")}
@@ -404,6 +404,6 @@ def download_zip(job_id: str):
 
 
 app.include_router(public)
-app.include_router(private)
+app.include_router(service)
 if config.STATIC_DIR.is_dir():
-    app.mount("/", StaticFiles(directory=config.STATIC_DIR, html=True), name="static")
+    app.mount("/", Site(directory=config.STATIC_DIR, html=True), name="static")

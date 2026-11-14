@@ -210,7 +210,7 @@ export function ToolScreen({ tool, ws }: { tool: ToolName; ws: Workspace }) {
                 </small>
               </span>
             </FilePick>
-            <p className="muted small">JPEG, PNG, WebP, HEIC or AVIF · up to {MAX_FILES} files, 50 MB in total</p>
+            <p className="muted small">JPEG, PNG, WebP or AVIF · up to {MAX_FILES} files, 50 MB in total</p>
             {n > 0 && (
               <ul className="rows">
                 {items.map((item) => (
@@ -368,7 +368,7 @@ export function ToolScreen({ tool, ws }: { tool: ToolName; ws: Workspace }) {
         <button className="btn primary" disabled={!n}>
           {compress ? "Compress PDF" : pdf ? "Make PDF" : n ? `Convert ${plural(n, "Image")}` : "Convert"}
         </button>
-        <p className="muted small">Files are deleted from the server after about an hour.</p>
+        <p className="muted small">Files are deleted from the server 15 minutes after the job finishes.</p>
       </aside>
     </form>
   );
@@ -428,7 +428,7 @@ function Results({ done, head, ws }: { done: Job; head: ReactNode; ws: Workspace
         <button className="btn secondary" onClick={() => ws.discard(true)}>
           Delete Files and Start Over
         </button>
-        <p className="muted small">Files are deleted from the server after about an hour.</p>
+        <p className="muted small">Files are deleted from the server 15 minutes after the job finishes.</p>
       </aside>
     </div>
   );

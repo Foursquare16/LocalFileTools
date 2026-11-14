@@ -4,6 +4,7 @@ WORKDIR /src
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
+COPY NOTICE /NOTICE
 RUN npm run build
 
 # Stage 2: runtime for both web and worker (compose picks the command).
