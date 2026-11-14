@@ -12,7 +12,7 @@ Placeholders used below (replace them with your own values):
 | `/path/to/navidrome` | the directory of Navidrome's Compose project |
 | `navidrome_default` | the Docker network cloudflared is on (case B only) |
 
-## 1. Install and create the owner
+## 1. Install
 
 ```bash
 git clone https://github.com/Foursquare16/LocalFileTools.git ~/LocalFileTools
@@ -28,20 +28,13 @@ Adjust the limits in `.env` if you want (see the README), then:
 docker compose up -d --build
 ```
 
-```bash
-docker compose exec web python -m app.cli create-owner
-```
-
-To reset the password later, run `create-owner` again. It replaces the owner (username and password) and signs out
-every password login. Guest links keep working; see the README for how to list and cancel them.
-
 Check that it answers on the server:
 
 ```bash
 curl -s http://127.0.0.1:8080/api/session
 ```
 
-It should print `{"authenticated":false}`.
+It should print `{"open":true}`.
 
 ## 2. Connect it to the tunnel
 
@@ -124,11 +117,6 @@ docker compose up -d
 `http://localfiletools:8080` (in the dashboard: service type HTTP, URL `localfiletools:8080`; in a config file:
 `service: http://localfiletools:8080`).
 
-In this case any container on that network (Navidrome included) can reach web directly and could set its own
-`CF-Connecting-IP` header, which the login rate limit trusts. To stop that, set `LFT_PROXY_IPS` in `.env` to the
-cloudflared container's address (see [the note under case C](#finding-the-tunnels-address)). The worker is not
-affected; it has no network at all.
-
 The network must exist before LocalFileTools starts, so start Navidrome's project first after changes to it.
 
 ### Case C: published on the LAN, with or without a tunnel
@@ -144,20 +132,11 @@ services:
     ports: !override ["192.168.1.10:8080:8080"]
 ```
 
-Set the same address and port in `.env`, together with the address the tunnel's requests come from, then apply:
+Set the same address and port in `.env`, then apply:
 
 ```
 LFT_LAN_HOST=192.168.1.10:8080
-LFT_PROXY_IPS=172.16.0.0/12
 ```
-
-#### Finding the tunnel's address
-
-`LFT_PROXY_IPS` tells the app which connections are the tunnel, so that only they are allowed to report a visitor's
-address for the login rate limit. Open the public hostname once, then look at the address at the start of the newest
-line in `docker compose logs --tail 5 web`. For a cloudflared container that reaches the LAN address it is a Docker
-gateway such as `172.19.0.1`, and `172.16.0.0/12` covers Docker's default range. For cloudflared as a host service
-it is the server's own LAN address. Leave `LFT_PROXY_IPS` empty if there is no tunnel.
 
 ```bash
 docker compose up -d
@@ -167,10 +146,11 @@ In the tunnel, route `files.example.com` to `http://192.168.1.10:8080`. On the L
 
 What you accept with this case:
 
-- On the LAN the connection is plain HTTP: the password, the session cookie and your files are not encrypted there.
-  Without `LFT_LAN_HOST` the page loads but login does not work, because browsers drop a `Secure` cookie over HTTP.
-- Every device on the LAN can reach the login page. With `LFT_PROXY_IPS` set as above, a device cannot dodge the
-  login rate limit by inventing visitor addresses. Use a strong password all the same.
+- On the LAN the connection is plain HTTP: your session cookie and your files are not encrypted there. Without
+  `LFT_LAN_HOST` the site works over HTTPS only.
+- Every device on the LAN can use the app, and nothing asks for a login.
+- A device that connects over the LAN address shows up in the access log with its LAN address. Visitors who come
+  through the tunnel show up with the tunnel's address only.
 - The address must match what the browser sends as `Host`, port included. If the server's LAN address changes,
   update both files.
 
@@ -183,20 +163,37 @@ route.
 To check, from any machine:
 
 ```bash
-curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'Origin: https://files.example.com' -H 'X-LFT: 1' https://files.example.com/api/logout
+curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'Origin: https://files.example.com' -H 'X-LFT: 1' https://files.example.com/api/jobs
 ```
 
-`204` means the Host header arrives intact. `403` means it does not, and logging in will fail with "Cross-site request
-rejected."
+Any code other than `403` means the Host header arrives intact. `403` means it does not, and POST requests such as
+starting a job fail with "Cross-site request rejected."
 
-Then open `https://files.example.com`, log in, and run one small job.
+Then open `https://files.example.com` and run one small job.
 
 Cloudflare features that add or rewrite scripts in pages can conflict with the page's Content Security Policy
 (`default-src 'self'`). If the page works on the server but is blank or broken through the tunnel, check those
 settings for this hostname first.
 
+## 4. Close, open and logs
+
+To close the service to everyone, and open it again (no restart needed):
+
+```bash
+docker compose exec web python -m app.cli close
+```
+
+```bash
+docker compose exec web python -m app.cli open
+```
+
+The compose file limits the container logs to 3 files of 10 MB each. The web service runs with `--no-proxy-headers`,
+so its access log shows the proxy's address, never a visitor's. If you run the image from your own compose file
+(see [update-rollback.md](update-rollback.md)), add the same `logging` options and `--no-proxy-headers` there.
+
 ## Commands not run while writing this
 
 No tunnel was available, so the `cloudflared` and `systemctl` commands and the dashboard steps were not run, and the
-Host header check was run against `http://127.0.0.1:8080` rather than through a tunnel. Everything else on this page
-was run against this repository's `compose.yaml`, with a test network standing in for cloudflared's.
+Host header check was run against `http://127.0.0.1:8080` rather than through a tunnel. The other commands were
+run against this repository's `compose.yaml` for an earlier version; for 1.2.0 the install, session check, `close`
+and `open` commands were run again.

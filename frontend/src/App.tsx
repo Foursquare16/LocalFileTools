@@ -17,6 +17,7 @@ import {
   plural,
   Settings,
   SOURCE_URL,
+  statusText,
   ToolName,
   totalSize,
   Workspace as WorkspaceState,
@@ -85,11 +86,13 @@ function Workspace({ onClosed }: { onClosed: () => void }) {
     return () => removeEventListener("hashchange", sync);
   }, []);
 
-  // Move focus to the new screen's heading, so keyboard and screen reader users land at its start.
+  // Name the tab after the new screen and move focus to its heading, so keyboard and screen reader users land at its start.
   const firstView = useRef(true);
   useEffect(() => {
+    const h1 = document.querySelector<HTMLElement>("main h1");
+    document.title = page && h1?.textContent ? `${h1.textContent} · LocalFileTools` : "LocalFileTools";
     if (firstView.current) firstView.current = false;
-    else document.querySelector<HTMLElement>("main h1")?.focus();
+    else h1?.focus();
   }, [page]);
 
   // Revoke thumbnail URLs when the workspace goes away (the service closed).
@@ -114,6 +117,7 @@ function Workspace({ onClosed }: { onClosed: () => void }) {
     const added = [...(files ?? [])].map((file) => ({ id: nextId++, file, url: URL.createObjectURL(file), rotation: 0, crop: null }));
     if (!added.length) return;
     setDeleted(false);
+    setNotice(`${plural(added.length, "file")} added, ${plural(replace ? 1 : items.length + added.length, "file")} in total`);
     if (replace) {
       // The compressor takes one PDF: a new pick replaces it, and of several dropped only the last is kept.
       clear();
@@ -123,6 +127,8 @@ function Workspace({ onClosed }: { onClosed: () => void }) {
   }
 
   function remove(id: number) {
+    const gone = items.find((i) => i.id === id);
+    if (gone) setNotice(`${gone.file.name} removed`); // same text as the page editor's, so it is announced once
     setItems((old) => {
       old.filter((i) => i.id === id).forEach((i) => URL.revokeObjectURL(i.url));
       return old.filter((i) => i.id !== id);
@@ -210,9 +216,9 @@ function Workspace({ onClosed }: { onClosed: () => void }) {
 
   const stage = job?.stage;
   useEffect(() => {
-    if (status === "queued") setNotice("Waiting in the queue…");
+    if (status === "queued") setNotice(statusText({ progress: null, job })); // announced when the position changes, not on every poll
     else if (status === "processing") setNotice(stage ?? "Processing…");
-  }, [status, stage]);
+  }, [status, stage, job?.position]);
 
   /** Cancel or delete the job on the server; `fresh` also empties the hopper. */
   async function discard(fresh: boolean) {

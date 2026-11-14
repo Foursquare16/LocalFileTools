@@ -20,7 +20,7 @@ export LFT_STATE_DIR=/tmp/lft/state LFT_JOBS_DIR=/tmp/lft/jobs LFT_STATIC_DIR=..
 ```
 
 ```bash
-mkdir -p /tmp/lft/state /tmp/lft/jobs && uv run python -m app.cli create-owner
+mkdir -p /tmp/lft/state /tmp/lft/jobs
 ```
 
 ```bash
@@ -33,8 +33,8 @@ uv run uvicorn app.api:app --host 127.0.0.1 --port 8080
 
 Then open `http://127.0.0.1:8080`. After a frontend change, run `npm run build` again and reload.
 
-`npm run dev` (the Vite dev server on port 5173) does not work for logging in at the moment: its proxy does not
-keep the `Host` header the backend's Origin check compares against, so POST requests get 403.
+`npm run dev` (the Vite dev server on port 5173) does not work for POST requests, such as starting a job, at the
+moment: its proxy does not keep the `Host` header the backend's Origin check compares against, so POST requests get 403.
 
 ## Tests and checks
 
@@ -54,8 +54,8 @@ cd frontend && npm run build
   `backend/app/tools/__init__.py`. That file's docstring is the contract: where inputs are, how outputs are written
   (temp file, then `os.replace`), when to call `report()`, and `ToolError` for messages shown to the user.
 - **Validation happens in the worker.** Web never opens or parses uploaded files; the tool, running in the worker's
-  child process, checks each file by its content. Keep it that way: the worker has no network and cannot see the
-  password database.
+  child process, checks each file by its content. Keep it that way: the worker has no network and no access to the
+  state volume.
 - **Web does not trust the jobs volume.** In `api.py`, build paths only from the job UUID and an index, and treat
   everything read from `jobs.sqlite` as untrusted.
 - **No binary fixtures.** Tests create their images and PDFs at run time. Tests that need Ghostscript are skipped

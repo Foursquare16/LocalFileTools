@@ -4,8 +4,8 @@
 
 `compose.yaml` runs one image as two services:
 
-- **web** — uvicorn serving the API (`backend/app/api.py`) and the built frontend. It holds the login and session
-  database, accepts uploads, and serves results. Published on `127.0.0.1:8080` only.
+- **web** — uvicorn serving the API (`backend/app/api.py`) and the built frontend. It accepts uploads, serves results,
+  and checks the `closed` flag. Published on `127.0.0.1:8080` only.
 - **worker** — `python -m app.worker`. Claims queued jobs, runs each tool, and deletes old jobs. It has no network
   (`network_mode: none`) and is limited to 2 GB RAM and 2 CPUs.
 
@@ -16,11 +16,12 @@ Both run as a non-root user with a read-only root filesystem, all capabilities d
 
 | Volume | Contents | Mounted in |
 |---|---|---|
-| `state` | `state.sqlite`: the owner (username, Argon2 hash) and sessions (SHA-256 of each token, never the token) | web only |
-| `jobs` | `jobs.sqlite` (the queue) and one directory per job with its uploads and results | web and worker |
+| `state` | Only the `closed` flag file, present while the service is closed | web only |
+| `jobs` | `jobs.sqlite` (the queue, with a SHA-256 hash of each browser's session token, never the token) and one directory per job with its uploads and results | web and worker |
 
-The split exists so that a compromised worker cannot read the password hash or session tokens: the state volume is
-simply not mounted in the worker container. Both databases use WAL mode.
+The worker does not mount the state volume, so a compromised worker cannot change the `closed` flag. The jobs
+database uses WAL mode. The state volume holds no database since 1.2.0; a `state.sqlite` left over from 1.1.0 is
+not used.
 
 ## Job lifecycle
 
@@ -50,38 +51,31 @@ So web:
 
 - never parses uploads (validation happens in the worker's child process);
 - builds file paths only from the job UUID and an output index, never from strings stored in `jobs.sqlite`;
-- opens results with `O_NOFOLLOW` at every path step and serves regular files only, so a planted symlink to
-  `state.sqlite` is refused;
+- opens results with `O_NOFOLLOW` at every path step and serves regular files only, so a planted symlink is
+  refused;
 - serves every result as `Content-Disposition: attachment`, with a content type from a fixed allowlist and
   `X-Content-Type-Options: nosniff`, and cleans filenames before putting them in the header.
 
 All responses carry a strict Content Security Policy (`default-src 'self'`, no framing). API responses carry
 `Cache-Control: no-store`.
 
-## Login and request checks
+## Anonymous sessions and request checks
 
-- One owner account, created or reset with `python -m app.cli create-owner`. No signup.
-- Guest links (`python -m app.cli invite NAME`) let other people in without the password. The link carries a random
-  token after the `#`, which browsers do not send to servers, so it stays out of access logs. The page posts it to
-  `/api/invite`, and it becomes that guest's session cookie until the link expires (30 days at most) or is revoked.
-  Only its hash is stored. A guest can do everything the owner can do in the page; there are no guest-only limits.
-- Sessions last 7 days and are stored server-side. The cookie is `HttpOnly; Secure; SameSite=Strict`.
-  `Secure` is left off only for requests whose `Host` equals `LFT_LAN_HOST`, when that is set.
+- There is no login. Each browser gets an anonymous session cookie, `session`, with a random token, valid for 7 days.
+  The jobs database stores only a SHA-256 hash of the token. A job can be read, downloaded or deleted only with the
+  cookie of the browser that created it.
+- The cookie is `HttpOnly; SameSite=Strict; Secure`. `Secure` is left off only for requests whose `Host` equals
+  `LFT_LAN_HOST`, when that is set.
 - Every request other than GET or HEAD must have an `Origin` whose host equals the `Host` header, and an `X-LFT: 1` header.
-- Five failed logins from one IP lock that IP out for 15 minutes; an IPv6 /64 network counts as one IP. The IP is
-  read from `CF-Connecting-IP`. By default that header is believed from anyone, which is only safe while nothing but
-  cloudflared can reach the web port; with `LFT_PROXY_IPS` set it is believed only on connections from those
-  addresses, and other connections are counted by their own address. The counter is kept in memory and resets when
-  web restarts.
-- Password checks run one at a time. That caps guessing speed whatever addresses the guesses come from, and keeps
-  parallel checks (64 MiB each) from exhausting web's memory.
+- While the `closed` flag file exists, every request except the session check answers "service closed". The flag is
+  set and removed with `python -m app.cli close` and `python -m app.cli open`.
 
 ## Tools
 
 Each tool is a module in `backend/app/tools/` with a `run()` function; the contract is in
 `backend/app/tools/__init__.py`.
 
-- **image** — opens by content with only the JPEG, PNG, WebP, HEIF and AVIF decoders enabled; checks the pixel
+- **image** — opens by content with only the JPEG, PNG, WebP and AVIF decoders enabled; checks the pixel
   count before decoding; applies EXIF orientation; drops metadata; optional Lanczos resize; flattens transparency
   onto white for JPEG. Target size: binary search on quality, at most 7 encodes.
 - **images_to_pdf** — the same loading and checks, plus the chosen rotation and then the chosen crop (fractions of

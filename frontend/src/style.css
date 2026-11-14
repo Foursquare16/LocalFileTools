@@ -245,8 +245,8 @@ footer {
   align-items: center;
   justify-content: center;
   gap: 0 20px;
-  padding: 12px 16px 16px;
-  color: var(--ink-muted); /* sits on the background glow, where the subtle grey falls under 4.5:1 */
+  padding: 12px 16px calc(16px + env(safe-area-inset-bottom));
+  color: var(--ink); /* sits on the background glow, where --ink-muted measures only 3.9:1 */
   font: 400 13px/18px var(--font);
 }
 
@@ -404,14 +404,14 @@ legend + * {
   min-height: 46px;
   padding: 0 14px;
   background: var(--surface2);
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--ink-subtle); /* the field's edge: 5.8:1 on the panel, where --hairline-strong gives 2.9:1 */
   border-radius: 10px;
   color: var(--ink);
   position: relative;
 }
 
 .input:focus-within {
-  border-color: var(--hairline-strong);
+  border-color: var(--accent);
 }
 
 .input:has(:focus-visible) {
@@ -1149,8 +1149,14 @@ progress:indeterminate::-moz-progress-bar {
   color: var(--danger);
 }
 
+/* On a surface, because --danger on the background glow measures only 3.4:1. */
 .machine > .error {
-  margin-top: 12px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 12px auto 0;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: var(--surface1);
 }
 
 /* --- tool pages --- */
@@ -1185,13 +1191,9 @@ progress:indeterminate::-moz-progress-bar {
   gap: 6px;
   min-height: 44px;
   margin: -8px 0 -6px;
-  color: var(--ink-muted);
+  color: var(--ink); /* bare on the glow, like the footer */
   font: 500 13px/18px var(--font);
   text-decoration: none;
-}
-
-.back:hover {
-  color: var(--ink);
 }
 
 .back .icon {
@@ -1223,7 +1225,7 @@ progress:indeterminate::-moz-progress-bar {
   display: flex;
   align-items: center;
   font: 400 13px/18px var(--font);
-  color: var(--ink-muted);
+  color: var(--ink); /* bare on the glow, like the footer */
 }
 
 .steps li {
@@ -1253,7 +1255,7 @@ progress:indeterminate::-moz-progress-bar {
 }
 
 .steps li.now {
-  color: var(--ink);
+  font-weight: 600;
 }
 
 .steps li + li:is(.done, .now) {
@@ -1500,6 +1502,7 @@ progress:indeterminate::-moz-progress-bar {
 
 .seg label:has(:checked) {
   background: var(--surface3);
+  box-shadow: inset 0 0 0 1px var(--accent); /* the chosen option must stand out by more than a 1.4:1 fill */
   color: var(--ink);
 }
 
@@ -1720,7 +1723,7 @@ progress:indeterminate::-moz-progress-bar {
   gap: 8px;
   border: 1.5px dashed var(--hairline-strong);
   border-radius: 14px;
-  color: var(--ink-muted);
+  color: var(--ink); /* bare on the glow, like the footer */
   font: 500 14px/20px var(--font);
   cursor: pointer;
 }
@@ -1728,7 +1731,6 @@ progress:indeterminate::-moz-progress-bar {
 .page-add:hover,
 .page-add.over {
   border-color: var(--accent);
-  color: var(--ink);
 }
 
 .page-add:has(:focus-visible) {
@@ -1921,6 +1923,7 @@ progress:indeterminate::-moz-progress-bar {
 
 .crop-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -1956,6 +1959,10 @@ progress:indeterminate::-moz-progress-bar {
   padding-left: 20px;
 }
 
+.doc .back {
+  align-self: flex-start; /* a flex item would stretch, and so would its focus ring */
+}
+
 .doc a:not(.back) {
   text-underline-offset: 3px;
 }
@@ -1971,6 +1978,18 @@ progress:indeterminate::-moz-progress-bar {
   font: 400 12px/18px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* --- text straight on the background glow --- */
+
+/* --ink-muted measures 3.9:1 on the brightest glow (3.0:1 under a dot of the grid); text without a card behind it uses --ink. */
+.title-row .muted,
+.tool-main > .muted,
+.tool-main > .field,
+.option-cards legend,
+.machine > .muted,
+.machine > .center-text .btn.ghost {
+  color: var(--ink);
 }
 
 /* --- smaller screens --- */
@@ -2221,6 +2240,11 @@ progress:indeterminate::-moz-progress-bar {
     padding-bottom: calc(126px + env(safe-area-inset-bottom));
   }
 
+  /* A tab key press must not scroll the focused page behind the bar. */
+  :root:has(.editor-bar) {
+    scroll-padding-bottom: calc(126px + env(safe-area-inset-bottom));
+  }
+
   .bar-row {
     display: flex;
     align-items: center;
@@ -2286,6 +2310,24 @@ progress:indeterminate::-moz-progress-bar {
   .pick-row {
     padding: 14px 16px;
     gap: 14px;
+  }
+}
+
+/* 320 px: the four steps and the crop shapes are about 30 px too wide for the screen. */
+@media (max-width: 359px) {
+  .steps {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
+  .steps li + li {
+    margin-left: 4px;
+    padding-left: 20px;
+    background-size: 14px 3px;
+  }
+
+  .crop-foot .seg label {
+    padding: 0 8px;
   }
 }
 

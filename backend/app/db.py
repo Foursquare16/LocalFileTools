@@ -8,7 +8,9 @@ from . import config
 JOBS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
     id TEXT PRIMARY KEY,                -- UUID; files live in <JOBS_DIR>/<id>/in/<n> and out/<n>
-    session TEXT NOT NULL,              -- sha256 of the creating browser's cookie token; the token is never stored
+    -- sha256 of the creating browser's cookie token; the token is never stored. The default lets a rollback to an
+    -- older version, which does not know the column, keep inserting; no session ever matches ''.
+    session TEXT NOT NULL DEFAULT '',
     tool TEXT NOT NULL,
     options TEXT NOT NULL,              -- JSON object
     status TEXT NOT NULL,               -- queued | processing | completed | failed | cancelled

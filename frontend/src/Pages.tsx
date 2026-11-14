@@ -1,15 +1,21 @@
-import { ReactNode } from "react";
+import { ReactNode, useEffect, useRef } from "react";
 import notice from "../../NOTICE?raw";
 import { Icon, Logo, MAX_FILES, SOURCE_URL } from "./shared";
 
 const ISSUES_URL = `${SOURCE_URL}/issues`;
 
 export function Closed() {
+  // The service can close while another screen is open, so focus and the tab title move here as they do for any screen.
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    heading.current?.focus();
+    document.title = "Service closed · LocalFileTools";
+  }, []);
   return (
     <div className="message card">
       <Logo />
       <div>
-        <h1 tabIndex={-1}>Service closed</h1>
+        <h1 ref={heading} tabIndex={-1}>Service closed</h1>
         <p className="muted">LocalFileTools is closed at the moment. Please try again later.</p>
       </div>
     </div>
@@ -109,7 +115,9 @@ export function Licences() {
           Source code
         </a>
       </p>
-      <pre tabIndex={0}>{notice}</pre>
+      <pre tabIndex={0} role="region" aria-label="Third-party software licences">
+        {notice}
+      </pre>
     </Doc>
   );
 }

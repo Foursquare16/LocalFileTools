@@ -243,7 +243,7 @@ export function PageEditor({ ws }: { ws: Workspace }) {
             aria-label="Settings"
             onClick={() => {
               const panel = document.getElementById("settings");
-              panel?.scrollIntoView({ behavior: "smooth" });
+              panel?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
               panel?.focus({ preventScroll: true });
             }}
           >

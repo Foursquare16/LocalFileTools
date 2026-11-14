@@ -166,9 +166,9 @@ export function DeleteAll({ ws, className }: { ws: Workspace; className: string 
       <button type="button" className={className} disabled={ws.progress !== null} onClick={() => dialog.current?.showModal()}>
         Delete my files now
       </button>
-      <dialog ref={dialog} className="crop-dialog confirm-dialog" aria-labelledby="delete-title">
+      <dialog ref={dialog} className="crop-dialog confirm-dialog" aria-labelledby="delete-title" aria-describedby="delete-text">
         <h2 id="delete-title">Delete your files now?</h2>
-        <p className="muted">Every file and result from this browser is removed from the server. This cannot be undone.</p>
+        <p id="delete-text" className="muted">Every file and result from this browser is removed from the server. This cannot be undone.</p>
         <span className="crop-actions">
           <button type="button" className="btn secondary" onClick={() => dialog.current?.close()}>
             Cancel

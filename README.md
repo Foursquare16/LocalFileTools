@@ -1,15 +1,14 @@
 # LocalFileTools
 
-A private, self-hosted file converter for one person. It runs in Docker Compose on your own server and has its
-own login. Files are processed by local libraries (Pillow, pillow-heif, img2pdf, pikepdf, Ghostscript); nothing is
-sent to an external conversion service.
+A self-hosted file converter. It runs in Docker Compose on your own server and needs no login. Files are processed
+by local libraries (Pillow, img2pdf, pikepdf, Ghostscript); nothing is sent to an external conversion service.
 
 ## Tools
 
 | Tool | What it does | Accepts | Produces |
 |---|---|---|---|
-| Image tool | Convert, resize (keeps proportions, only shrinks), compress to a quality or a best-effort target size per image | JPEG, PNG, WebP, HEIC, AVIF | JPEG, PNG or WebP, one file per input |
-| Images → PDF | Put several images into one PDF; reorder (drag or keyboard), rotate and crop them; A4 or image-sized pages; margin; choose the file name | JPEG, PNG, WebP, HEIC, AVIF | One PDF |
+| Image tool | Convert, resize (keeps proportions, only shrinks), compress to a quality or a best-effort target size per image | JPEG, PNG, WebP, AVIF | JPEG, PNG or WebP, one file per input |
+| Images → PDF | Put several images into one PDF; reorder (drag or keyboard), rotate and crop them; A4 or image-sized pages; margin; choose the file name | JPEG, PNG, WebP, AVIF | One PDF |
 | PDF compressor | Make a PDF smaller with a strength (low, medium, high) or a target size; returns the smallest result that beats the original | One PDF | One PDF |
 
 Files are checked by their content, not their extension. Target sizes work for JPEG and WebP only (PNG has no quality
@@ -19,8 +18,8 @@ fillable-form PDFs.
 
 ## Privacy
 
-Uploaded files are stored and processed only on your server and are deleted about an hour after the job finishes
-(there is a cleanup pass every 5 minutes). They are never backed up. The page loads no analytics, remote fonts or
+Uploaded files are stored and processed only on your server and are deleted about 15 minutes after the job finishes
+(there is a cleanup pass every minute). They are never backed up. The page loads no analytics, remote fonts or
 third-party scripts.
 
 If you publish it through a Cloudflare Tunnel, as the deployment guide does, Cloudflare terminates TLS and can
@@ -32,15 +31,15 @@ All limits are set in `.env` (copied from `.env.example`). The values below are 
 
 | Limit | Default | `.env` variable |
 |---|---|---|
-| Queued jobs | 5 | `LFT_MAX_QUEUED` |
+| Queued jobs | 20 | `LFT_MAX_QUEUED` |
 | Upload size, all files of one job together | 50 MB | `LFT_MAX_UPLOAD_MB` |
 | Files per job | 30 | `LFT_MAX_FILES` |
 | Image size | 60 megapixels per image | `LFT_MAX_IMAGE_MP` |
 | PDF length | 100 pages | `LFT_MAX_PDF_PAGES` |
 | Processing time per job | 300 seconds | `LFT_JOB_TIMEOUT_SECONDS` |
 | Space for uploads and results (jobs volume) | 2048 MB | `LFT_DISK_BUDGET_MB` |
-| Keep finished jobs for | 3600 seconds | `LFT_RETENTION_SECONDS` |
-| Cleanup interval | 300 seconds | `LFT_CLEANUP_INTERVAL_SECONDS` |
+| Keep finished jobs for | 900 seconds | `LFT_RETENTION_SECONDS` |
+| Cleanup interval | 60 seconds | `LFT_CLEANUP_INTERVAL_SECONDS` |
 
 Fixed, not in `.env`:
 
@@ -71,40 +70,29 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-Create the owner account (asks for a username and a password of at least 12 characters):
-
-```bash
-docker compose exec web python -m app.cli create-owner
-```
-
 The app now listens on `http://127.0.0.1:8080`, on the server only. Open it in a browser on the server itself,
-or publish it with a Cloudflare Tunnel as described in [docs/deploy.md](docs/deploy.md). The login cookie is marked
-`Secure`, so from other machines it only works over HTTPS, unless you set `LFT_LAN_HOST` (deploy guide, case C).
+or publish it with a Cloudflare Tunnel as described in [docs/deploy.md](docs/deploy.md). The site works over HTTPS
+from other machines; over plain HTTP on your LAN only with `LFT_LAN_HOST` set (deploy guide, case C).
 
-Running `create-owner` again resets the password and signs out every password login.
+## Public use
 
-## Guest links
+Anyone who opens the app gets an anonymous cookie named `session`, valid for 7 days. A job can be read, downloaded
+or deleted only by the browser that created it. The "Delete my files now" button deletes all jobs of that browser at
+once. The server keeps only a hash of the cookie's token.
 
-To let someone else use the app without your password, print a link for them (here valid for 48 hours):
+The queue holds 20 jobs, and the job status shows its place in the queue.
 
-```bash
-docker compose exec web python -m app.cli invite alex --hours 48 --url https://files.example.com
-```
-
-Whoever opens the link is logged in until it expires, on any of their devices. Send it privately: anyone who has
-the link can use the app. Guests share the same queue and limits as you, and nobody sees anyone else's files.
+To close the service to everyone, and open it again:
 
 ```bash
-docker compose exec web python -m app.cli invites
+docker compose exec web python -m app.cli close
 ```
-
-lists the links that still work, and
 
 ```bash
-docker compose exec web python -m app.cli revoke alex
+docker compose exec web python -m app.cli open
 ```
 
-cancels a guest's links at once. `create-owner` does not cancel guest links.
+Visitors see a "service closed" page while it is closed. Jobs already in the queue still run. No restart is needed.
 
 ## Tests
 

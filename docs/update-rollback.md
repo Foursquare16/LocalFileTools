@@ -4,7 +4,24 @@ A version is a git tag. The server either builds the image from the checked-out 
 or pulls the image published for each tag (see [Using the published image](#using-the-published-image)).
 
 Restarting the worker fails any job that is processing at that moment ("Interrupted by a restart."); queued jobs
-stay queued. Update when nothing is running. Volumes, the owner account and `.env` are kept.
+stay queued. Update when nothing is running. Volumes and `.env` are kept.
+
+## Notes for 1.2.0
+
+Updating to 1.2.0 from 1.1.0:
+
+- On the first start the old jobs table is dropped, because jobs are temporary. Their folders are removed by the
+  normal cleanup.
+- `state.sqlite` is left in place and not used. No owner is needed after the update.
+- Check `.env`: a copy of the old `.env.example` still sets `LFT_MAX_QUEUED=5`, `LFT_RETENTION_SECONDS=3600` and
+  `LFT_CLEANUP_INTERVAL_SECONDS=300`, and those win over the new defaults. Set them to 20, 900 and 60 (or remove the
+  lines), because the privacy page tells visitors that files are deleted after about 15 minutes.
+- A compose file of your own needs the `logging` options and `--no-proxy-headers` (see [deploy.md](deploy.md),
+  section 4).
+
+Rolling back to an earlier version needs either the old `state.sqlite` still in the `state` volume, or a new owner
+created with `python -m app.cli create-owner` after the rollback. The jobs table keeps working: the older version
+ignores the new `session` column.
 
 ## Update to the latest commit
 
@@ -61,7 +78,8 @@ git checkout master && git pull && docker compose up -d --build
 ```
 
 The databases are created with `CREATE TABLE IF NOT EXISTS` and there are no migrations yet, so the current
-versions can be rolled back and forward over the same volumes.
+versions can be rolled back and forward over the same volumes. The one exception is the jobs table drop in 1.2.0
+(see above).
 
 ## Using the published image
 
