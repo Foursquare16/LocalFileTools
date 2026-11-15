@@ -1,4 +1,4 @@
-"""Limits and paths from env (plan §2). Read as `config.X` at call time so tests can override."""
+"""Limits and paths from env. Read as `config.X` at call time so tests can override."""
 
 import os
 from pathlib import Path

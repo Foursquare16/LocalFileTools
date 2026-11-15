@@ -12,7 +12,7 @@
 Both run as a non-root user with a read-only root filesystem, all capabilities dropped, `no-new-privileges`,
 `init: true` and a 64 MB `/tmp` tmpfs. Neither mounts the Docker socket or any host directory.
 
-## Storage: two SQLite files on two volumes
+## Storage: two volumes
 
 | Volume | Contents | Mounted in |
 |---|---|---|

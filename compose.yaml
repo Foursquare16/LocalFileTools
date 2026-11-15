@@ -1,4 +1,4 @@
-# web + worker: same image, different command (plan §6).
+# web + worker: same image, different command.
 x-hardening: &hardening
   build: .
   image: localfiletools:latest
