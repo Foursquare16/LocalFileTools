@@ -1,4 +1,4 @@
-import { InputHTMLAttributes, ReactNode, useState } from "react";
+import { InputHTMLAttributes, ReactNode } from "react";
 import { formatSize, Job } from "./api";
 import { PageEditor } from "./PageEditor";
 import {
@@ -435,22 +435,18 @@ function Results({ done, head, ws }: { done: Job; head: ReactNode; ws: Workspace
 }
 
 function FileRow({ item, ws, children }: { item: Item; ws: Workspace; children?: ReactNode }) {
-  const [dims, setDims] = useState("");
-  const [broken, setBroken] = useState(isPdf(item.file));
   const name = item.file.name;
   return (
     <li className="row-item">
       <span className="thumb">
-        {broken ? (
+        {!item.preview ? (
           <Icon name={isPdf(item.file) ? "file" : "image"} />
         ) : (
           <img
-            src={item.url}
+            src={item.preview}
             alt=""
             loading="lazy"
             decoding="async"
-            onLoad={(e) => setDims(`${e.currentTarget.naturalWidth} × ${e.currentTarget.naturalHeight}`)}
-            onError={() => setBroken(true)}
           />
         )}
       </span>
@@ -459,7 +455,7 @@ function FileRow({ item, ws, children }: { item: Item; ws: Workspace; children?:
         <small>
           {isPdf(item.file) && "PDF · "}
           {formatSize(item.file.size)}
-          {dims && ` · ${dims}`}
+          {item.size && ` · ${item.size[0]} × ${item.size[1]}`}
         </small>
       </span>
       <span className="actions">

@@ -52,7 +52,20 @@ export const DONE = ["completed", "failed", "cancelled"];
 
 /** `crop` is [left, top, right, bottom] as fractions of the image after `rotation`, or null for the whole image. */
 export type Crop = [number, number, number, number];
-export type Item = { id: number; file: File; url: string; rotation: number; crop: Crop | null };
+/**
+ * `url` is the full file; the list and grid show `preview`, a small JPEG made after the file is added (null while it is
+ * pending, or for a PDF). `size` is the photo's real pixel size, `broken` that the browser could not decode it.
+ */
+export type Item = {
+  id: number;
+  file: File;
+  url: string;
+  rotation: number;
+  crop: Crop | null;
+  preview: string | null;
+  size: [number, number] | null;
+  broken: boolean;
+};
 
 export const isPdf = (f: File) => f.type === "application/pdf" || /\.pdf$/i.test(f.name);
 // The type is often empty for AVIF, so the extension counts too. The worker checks the real content.

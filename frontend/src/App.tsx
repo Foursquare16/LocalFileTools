@@ -7,6 +7,7 @@ import {
   DEFAULT_SETTINGS,
   DONE,
   fits,
+  isImage,
   Crop,
   Item,
   Logo,
@@ -62,6 +63,12 @@ export default function App() {
 }
 
 let nextId = 0;
+let previews: Promise<void> = Promise.resolve(); // one decode at a time: a full photo is up to ~190 MB decoded
+
+function release(i: Item) {
+  URL.revokeObjectURL(i.url);
+  if (i.preview) URL.revokeObjectURL(i.preview);
+}
 
 /**
  * Owns the files in the hopper, the settings and the last job. The machine (no hash) and the tool screens (#image,
@@ -98,7 +105,14 @@ function Workspace({ onClosed }: { onClosed: () => void }) {
   // Revoke thumbnail URLs when the workspace goes away (the service closed).
   const itemsRef = useRef(items);
   itemsRef.current = items;
-  useEffect(() => () => itemsRef.current.forEach((i) => URL.revokeObjectURL(i.url)), []);
+  const live = useRef(new Set<number>()); // ids still wanted, so a preview finishing late is dropped
+  useEffect(
+    () => () => {
+      live.current.clear();
+      itemsRef.current.forEach(release);
+    },
+    [],
+  );
 
   function fail(err: unknown) {
     if (isClosed(err)) onClosed();
@@ -106,31 +120,78 @@ function Workspace({ onClosed }: { onClosed: () => void }) {
   }
 
   function clear() {
+    live.current.clear();
     setItems((old) => {
-      old.forEach((i) => URL.revokeObjectURL(i.url));
+      old.forEach(release);
       return [];
     });
   }
 
+  /** Make the small preview and read the real size of one image, then free the full decode. */
+  async function preview(item: Item) {
+    if (!live.current.has(item.id)) return;
+    const img = new Image();
+    const canvas = document.createElement("canvas");
+    let patch: Partial<Item> = { broken: true };
+    try {
+      await new Promise<void>((ok, no) => {
+        img.onload = () => ok();
+        img.onerror = no;
+        img.src = item.url; // through an <img>, so the EXIF orientation is applied
+      });
+      const [w, h] = [img.naturalWidth, img.naturalHeight];
+      const scale = Math.min(1, 400 / Math.max(w, h));
+      canvas.width = Math.max(1, Math.round(w * scale));
+      canvas.height = Math.max(1, Math.round(h * scale));
+      const ctx = canvas.getContext("2d")!;
+      ctx.fillStyle = "#fff"; // JPEG has no transparency
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise<Blob | null>((ok) => canvas.toBlob(ok, "image/jpeg", 0.8));
+      if (blob) patch = { preview: URL.createObjectURL(blob), size: [w, h] };
+    } catch {
+      // stays broken
+    } finally {
+      img.onload = img.onerror = null;
+      img.src = "";
+      canvas.width = canvas.height = 0;
+    }
+    if (live.current.has(item.id)) setItems((old) => old.map((i) => (i.id === item.id ? { ...i, ...patch } : i)));
+    else if (patch.preview) URL.revokeObjectURL(patch.preview);
+  }
+
   function add(files: FileList | null, replace = false) {
     setError("");
-    const added = [...(files ?? [])].map((file) => ({ id: nextId++, file, url: URL.createObjectURL(file), rotation: 0, crop: null }));
+    const added: Item[] = [...(files ?? [])].map((file) => ({
+      id: nextId++,
+      file,
+      url: URL.createObjectURL(file),
+      rotation: 0,
+      crop: null,
+      preview: null,
+      size: null,
+      broken: false,
+    }));
     if (!added.length) return;
     setDeleted(false);
     setNotice(`${plural(added.length, "file")} added, ${plural(replace ? 1 : items.length + added.length, "file")} in total`);
     if (replace) {
       // The compressor takes one PDF: a new pick replaces it, and of several dropped only the last is kept.
       clear();
-      added.slice(0, -1).forEach((i) => URL.revokeObjectURL(i.url));
+      added.slice(0, -1).forEach(release);
     }
-    setItems((old) => (replace ? added.slice(-1) : [...old, ...added]));
+    const kept = replace ? added.slice(-1) : added;
+    kept.forEach((i) => live.current.add(i.id));
+    kept.filter((i) => isImage(i.file)).forEach((i) => (previews = previews.then(() => preview(i))));
+    setItems((old) => (replace ? kept : [...old, ...kept]));
   }
 
   function remove(id: number) {
     const gone = items.find((i) => i.id === id);
     if (gone) setNotice(`${gone.file.name} removed`); // same text as the page editor's, so it is announced once
+    live.current.delete(id);
     setItems((old) => {
-      old.filter((i) => i.id === id).forEach((i) => URL.revokeObjectURL(i.url));
+      old.filter((i) => i.id === id).forEach(release);
       return old.filter((i) => i.id !== id);
     });
   }

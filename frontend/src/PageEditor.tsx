@@ -273,9 +273,10 @@ export function PageEditor({ ws }: { ws: Workspace }) {
   );
 }
 
-function useImage(url: string) {
+function useImage(url: string | null) {
   const [img, setImg] = useState<HTMLImageElement | "broken" | null>(null);
   useEffect(() => {
+    if (!url) return;
     const im = new Image();
     let live = true;
     im.onload = () => live && setImg(im);
@@ -283,6 +284,7 @@ function useImage(url: string) {
     im.src = url;
     return () => {
       live = false;
+      im.src = ""; // frees the decoded pixels when the dialog closes or the preview is replaced
     };
   }, [url]);
   return img;
@@ -306,17 +308,18 @@ function draw(canvas: HTMLCanvasElement, img: HTMLImageElement, rotation: number
 
 /** The page as the PDF will show it: turned, then cropped. */
 function PagePreview({ item, size, onBroken }: { item: Item; size: number; onBroken: () => void }) {
-  const img = useImage(item.url);
+  const img = useImage(item.preview);
+  const broken = item.broken || img === "broken";
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
-    if (img === "broken") onBroken();
+    if (broken) onBroken();
     else if (img && ref.current) draw(ref.current, img, item.rotation, item.crop, size);
-  }, [img, item.rotation, item.crop]);
-  if (img === "broken")
+  }, [img, broken, item.rotation, item.crop]);
+  if (broken || !img)
     return (
       <span className="page-fallback">
         <Icon name="image" />
-        <small>No preview{item.rotation ? ` · turned ${item.rotation}°` : ""}</small>
+        {broken && <small>No preview{item.rotation ? ` · turned ${item.rotation}°` : ""}</small>}
       </span>
     );
   return <canvas ref={ref} />;
