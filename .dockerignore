@@ -1,6 +1,5 @@
 .git
 .env
-.claude
 **/__pycache__
 **/.pytest_cache
 backend/.venv
