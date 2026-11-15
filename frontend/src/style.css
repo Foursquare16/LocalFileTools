@@ -2012,8 +2012,39 @@ progress:indeterminate::-moz-progress-bar {
 
 /* Phone: the chutes stack, fed by one pipe down their left side. */
 @media (max-width: 719px) {
+  /* Fixed so it stays put on overscroll; opaque so iOS Safari tints the status bar. */
   header.top {
-    padding: 0 16px;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 20;
+    background: var(--canvas);
+    height: calc(56px + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left));
+  }
+
+  body {
+    padding-top: calc(56px + env(safe-area-inset-top));
+  }
+
+  /* Keeps scrollIntoView and focus from landing under the fixed header. */
+  :root {
+    scroll-padding-top: calc(56px + env(safe-area-inset-top));
+  }
+
+  /* Floating browser toolbars would cover the last line. */
+  footer {
+    padding-bottom: max(64px, calc(16px + env(safe-area-inset-bottom)));
+  }
+
+  footer span {
+    flex-basis: 100%;
+    text-align: center;
+  }
+
+  .sheet {
+    display: none;
   }
 
   .tool-page {

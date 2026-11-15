@@ -153,7 +153,7 @@ export type Workspace = {
 export function statusText({ progress, job }: { progress: number | null; job: Job | null }) {
   if (progress !== null) return "Uploading…";
   if (job?.status !== "queued") return job?.stage ?? "Processing…";
-  return job.position ? `Waiting in the queue (position ${job.position})` : "Waiting in the queue…";
+  return job.position ? `In queue (position ${job.position})` : "In queue…";
 }
 
 /** "87% smaller", "12% larger" or "about the same size". */
