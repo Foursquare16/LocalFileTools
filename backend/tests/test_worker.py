@@ -126,6 +126,15 @@ def test_cleanup_after_expiry():
     assert _status(ids["recent"]) is not None
 
 
+def test_cleanup_if_due_runs_only_when_due(monkeypatch):
+    calls = []
+    monkeypatch.setattr(worker, "cleanup", lambda: calls.append(1))
+    monkeypatch.setattr(worker, "_next_cleanup", 0.0)
+    worker.cleanup_if_due()
+    worker.cleanup_if_due()  # the interval has not passed yet
+    assert calls == [1]
+
+
 def test_default_retention_is_15_minutes():
     assert (config.RETENTION_SECONDS, config.CLEANUP_INTERVAL_SECONDS) == (900, 60)
     ids = {name: str(uuid.uuid4()) for name in ("old", "fresh")}

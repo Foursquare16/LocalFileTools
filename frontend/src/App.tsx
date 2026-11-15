@@ -254,7 +254,14 @@ function Workspace({ onClosed }: { onClosed: () => void }) {
   const finished = job ? DONE.includes(job.status) : true;
   useEffect(() => {
     if (!jobId || finished) return;
-    const timer = setInterval(() => api<Job>(`/jobs/${jobId}`).then(setJob, fail), 1000);
+    const timer = setInterval(
+      () =>
+        api<Job>(`/jobs/${jobId}`).then(setJob, (err) => {
+          if (err instanceof HttpError && err.status === 404) setJob(null); // deleted elsewhere: stop polling
+          fail(err);
+        }),
+      1000,
+    );
     return () => clearInterval(timer);
   }, [jobId, finished]);
 

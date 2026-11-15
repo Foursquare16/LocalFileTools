@@ -1,7 +1,7 @@
 {
   "name": "LocalFileTools",
   "short_name": "FileTools",
-  "description": "Convert and compress files on your own server.",
+  "description": "Convert images, turn images into a PDF and compress PDFs.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

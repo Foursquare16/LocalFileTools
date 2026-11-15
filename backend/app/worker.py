@@ -52,6 +52,16 @@ def cleanup() -> None:
             shutil.rmtree(entry.path, ignore_errors=True)
 
 
+_next_cleanup = 0.0  # shared by the claim loop and run_job, so files expire on time during a long job
+
+
+def cleanup_if_due() -> None:
+    global _next_cleanup
+    if time.monotonic() >= _next_cleanup:
+        cleanup()
+        _next_cleanup = time.monotonic() + config.CLEANUP_INTERVAL_SECONDS
+
+
 def _kill_group(pgid: int) -> None:
     try:
         os.killpg(pgid, signal.SIGKILL)
@@ -73,6 +83,7 @@ def run_job(job_id: str) -> None:
             break
         except subprocess.TimeoutExpired:
             pass
+        cleanup_if_due()
         with db.jobs() as c:
             row = jobs.get(c, job_id)
         if row is None or row["status"] == "cancelled":
@@ -128,11 +139,8 @@ def main() -> None:
         child(sys.argv[2])
         return
     recover()
-    next_cleanup = 0.0
     while True:
-        if time.monotonic() >= next_cleanup:
-            cleanup()
-            next_cleanup = time.monotonic() + config.CLEANUP_INTERVAL_SECONDS
+        cleanup_if_due()
         with db.jobs() as c:
             job = jobs.claim(c)
         if job:

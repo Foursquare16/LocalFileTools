@@ -36,6 +36,7 @@ def jobs():
     try:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA secure_delete=ON")  # deleted rows hold input file names; must not linger in free pages
         conn.executescript(JOBS_SCHEMA)
         if not _has_session(conn):
             # A 1.1.0 table: its jobs belong to no browser, so drop them; cleanup() sweeps their folders as orphans.
