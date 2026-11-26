@@ -1,4 +1,23 @@
+<div align="center">
+
 # LocalFileTools
+
+**Self-hosted, privacy-first image and PDF converter. Your files never leave your server.**
+
+[![Live demo](https://img.shields.io/badge/live_demo-tools.foursquare16labs.in-4d7c0f)](https://tools.foursquare16labs.in)
+[![Version](https://img.shields.io/github/v/tag/Foursquare16/LocalFileTools?label=version)](https://github.com/Foursquare16/LocalFileTools/tags)
+[![Docker image](https://img.shields.io/badge/docker-ghcr.io-2496ED?logo=docker&logoColor=white)](https://github.com/Foursquare16/LocalFileTools/pkgs/container/localfiletools)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
+<br>
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React-20232A?logo=react&logoColor=61DAFB)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
+
+[**Try it live**](https://tools.foursquare16labs.in) · [Run your own](#quick-start) · [How it works](docs/architecture.md)
+
+![LocalFileTools home screen: drop files in, pick a tool, download the result](docs/images/home.webp)
+
+</div>
 
 A self-hosted file converter. It runs in Docker Compose on your own server and needs no login. Files are processed
 by local libraries (Pillow, img2pdf, pikepdf, Ghostscript); nothing is sent to an external conversion service.
@@ -10,6 +29,10 @@ by local libraries (Pillow, img2pdf, pikepdf, Ghostscript); nothing is sent to a
 | Image tool | Convert, resize (keeps proportions, only shrinks), compress to a quality or a best-effort target size per image | JPEG, PNG, WebP, AVIF | JPEG, PNG or WebP, one file per input |
 | Images → PDF | Put several images into one PDF; reorder (drag or keyboard), rotate and crop them; A4 or image-sized pages; margin; choose the file name | JPEG, PNG, WebP, AVIF | One PDF |
 | PDF compressor | Make a PDF smaller with a strength (low, medium, high) or a target size; returns the smallest result that beats the original | One PDF | One PDF |
+
+| Image tool | Images → PDF |
+|---|---|
+| ![Image tool: choose format, resize and quality](docs/images/image-tool.webp) | ![Images to PDF: reorder, rotate and crop pages](docs/images/images-to-pdf.webp) |
 
 Files are checked by their content, not their extension. Target sizes work for JPEG and WebP only (PNG has no quality
 setting) and are best effort: if a target can't be reached you get the smallest result and its real size. The PDF
